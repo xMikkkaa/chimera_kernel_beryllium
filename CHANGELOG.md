@@ -1,5 +1,20 @@
 # Chimera-V5 Changelog
 
+## [V5-PGO-Thin-LTO] - 2026-10-12
+
+### Build & Toolchain — ThinLTO
+- Kbuild: ThinLTO support with arm64 select, initcall ordering via per-site sections (__COUNTER__/__LINE__), llvm-nm two-dash fix for newer LLVM
+- arm64 quirks for LTO link/boot: __pa_function, __nocfi on __apply_alternatives, gic_of_init rename for ThinLTO+CFI, atomic_ll_sc.o in obj-y for lld, ERRATUM_843419 default under LTO_CLANG, Tegra210 SOC guard, __initconst section fix, cond_syscall alias fix
+- chimera_defconfig: enable LTO/LTO_CLANG/THINLTO with THIN_ARCHIVES, drop LTO_NONE, keep LD_DEAD_CODE_DATA_ELIMINATION
+- Makefile: ThinLTO cache flags aligned with upstream, --lto-O3 on LLD link, -O2 under LTO, keep -fvisibility=hidden (default hangs at logo under split-lto-unit), retain -fsplit-lto-unit
+- kallsyms: larger max symbol length for LTO postfixes, filter arm64 __efistub_ symbols, generic function-descriptor handling for LTO builds
+- Modules: merge split LTO sections via linker script with 4.19 flag-path fix, shorter batches for update_lto_symversions
+- Clang fix: gate WireGuard zinc -Wno-stringop-overread behind cc-disable-warning so -Werror Clang builds pass
+- Makefile hygiene so each compiler owns its flags: drop duplicate -mcpu/-mtune, move graphite/ipa-pta under cc-name with cc-option probing, honor CONFIG_POLLY_CLANG gate; GCC LTO path evaluated then switched off in favor of Clang ThinLTO
+
+### Build & Toolchain — PGO
+- profiles/vmlinux.profdata refreshed from production harvest (daily use plus AnTuTu under schedutil and performance governors, base 23c581ce40d7): 9.4MB profraw with 1.09T counts across 61614 functions merged into 11.6MB profdata covering 61537 functions
+
 ## [V5] - 2026-09-27
 
 ### Scheduler & CPU
