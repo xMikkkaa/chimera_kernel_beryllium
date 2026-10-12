@@ -254,8 +254,8 @@ SUBARCH := $(shell uname -m | sed -e s/i.86/x86/ -e s/x86_64/x86/ \
 # "make" in the configured kernel build directory always uses that.
 # Default value for CROSS_COMPILE is not to prefix executables
 # Note: Some architectures assign CROSS_COMPILE in their arch/*/Makefile
-ARCH		?= $(SUBARCH)
-CROSS_COMPILE	?= $(CONFIG_CROSS_COMPILE:"%"=%)
+ARCH		:= arm64
+CROSS_COMPILE	?= aarch64-linux-gnu-
 
 # Architecture as present in compile.h
 UTS_MACHINE 	:= $(ARCH)
@@ -382,7 +382,7 @@ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 NOSTDINC_FLAGS  =
 CFLAGS_MODULE   =
 AFLAGS_MODULE   =
-LDFLAGS_MODULE  =
+LDFLAGS_MODULE  = --strip-debug
 CFLAGS_KERNEL	=
 AFLAGS_KERNEL	=
 LDFLAGS_vmlinux =
@@ -411,21 +411,9 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs -pipe \
 		   -fno-strict-aliasing -fno-common -fshort-wchar \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
-		   -Wno-unused-function\
-		   -ffast-math -mcpu=cortex-a55 -mtune=cortex-a55 \
+		   -Wno-unused-function \
 		   -std=gnu89
-ifeq ($(cc-name),clang)
-KBUILD_CFLAGS   += -mllvm -polly \
-		   -mllvm -polly-run-dce \
-		   -mllvm -polly-run-inliner \
-		   -mllvm -polly-loopfusion-greedy=1 \
-		   -mllvm -polly-reschedule=1 \
-		   -mllvm -polly-postopts=1 \
-		   -mllvm -polly-ast-use-context \
-		   -mllvm -polly-vectorizer=stripmine \
-		   -mllvm -polly-detect-keep-going \
-		   -mllvm -polly-invariant-load-hoisting
-endif
+KBUILD_CFLAGS   += $(call cc-option,-ffast-math)
 
 KBUILD_CPPFLAGS := -D__KERNEL__
 KBUILD_AFLAGS_KERNEL :=
@@ -726,11 +714,11 @@ LD		:= $(LDGOLD)
 LDFLAGS		+= -plugin LLVMgold.so
 LDFLAGS		+= -plugin-opt=mcpu=kryo
 endif
-# use llvm-ar for building symbol tables from IR files, and llvm-dis instead
+# use llvm-ar for building symbol tables from IR files, and llvm-nm instead
 # of objdump for processing symbol versions and exports
 LLVM_AR		:= llvm-ar
-LLVM_DIS	:= llvm-dis
-export LLVM_AR LLVM_DIS
+LLVM_NM		:= llvm-nm
+export LLVM_AR LLVM_NM
 # Set O3 optimization level for LTO
 LDFLAGS		+= --plugin-opt=O3
 endif
@@ -741,7 +729,7 @@ LTO_CFLAGS	:= -flto -flto=jobserver -fno-fat-lto-objects \
 		   -fuse-linker-plugin -fwhole-program
 KBUILD_CFLAGS	+= $(LTO_CFLAGS)
 LTO_LDFLAGS	:= $(LTO_CFLAGS) -Wno-lto-type-mismatch -Wno-psabi \
-		   -Wno-stringop-overflow -flinker-output=nolto-rel
+		   -Wno-stringop-overflow -Wno-stringop-overread -flinker-output=nolto-rel
 LDFINAL		:= $(CONFIG_SHELL) $(srctree)/scripts/gcc-ld $(LTO_LDFLAGS)
 AR		:= $(CROSS_COMPILE)gcc-ar
 NM		:= $(CROSS_COMPILE)gcc-nm
@@ -775,12 +763,20 @@ endif
 
 ifdef CONFIG_LTO_CLANG
 ifdef CONFIG_THINLTO
-lto-clang-flags := -flto=thin
-KBUILD_LDFLAGS += --thinlto-cache-dir=.thinlto-cache
+lto-clang-flags := -flto=thin -fsplit-lto-unit
+KBUILD_LDFLAGS	+= --thinlto-cache-dir=$(extmod-prefix).thinlto-cache
 else
-lto-clang-flags	:= -flto
+lto-clang-flags := -flto
 endif
 lto-clang-flags += -fvisibility=hidden
+
+# Limit inlining across translation units to reduce binary size
+LD_FLAGS_LTO_CLANG := -mllvm -import-instr-limit=5
+
+KBUILD_LDFLAGS += $(LD_FLAGS_LTO_CLANG)
+KBUILD_LDFLAGS_MODULE += $(LD_FLAGS_LTO_CLANG)
+
+KBUILD_LDFLAGS_MODULE += -T $(srctree)/scripts/module-lto.lds
 
 # allow disabling only clang LTO where needed
 DISABLE_LTO_CLANG := -fno-lto -fvisibility=default
@@ -839,11 +835,11 @@ else
 KBUILD_CFLAGS   += -O2
 endif
 
-KBUILD_CFLAGS	+= -O2 -mtune=cortex-a55 -mcpu=cortex-a55+crc+crypto+fp16+simd \
--fomit-frame-pointer -pipe \
--funroll-loops \
--ftree-vectorize \
--fforce-addr \
+# KBUILD_CFLAGS	+= -O2 -mtune=cortex-a55 -mcpu=cortex-a55+crc+crypto+fp16+simd \
+# -fomit-frame-pointer -pipe \
+# -funroll-loops \
+# -ftree-vectorize \
+# -fforce-addr \
 ##-ftree-loop-vectorize \
 ##-Wno-attribute-alias 
 
@@ -870,6 +866,12 @@ KBUILD_AFLAGS += -mcpu=cortex-a55 -mtune=cortex-a55 -march=armv8.2-a+crypto
 else
 KBUILD_CFLAGS += -mcpu=cortex-a75.cortex-a55+crypto -mtune=cortex-a75.cortex-a55
 KBUILD_AFLAGS += -mcpu=cortex-a75.cortex-a55+crypto -mtune=cortex-a75.cortex-a55
+# Probe each flag so toolchains built without graphite still compile.
+KBUILD_CFLAGS += $(call cc-option,-fgraphite,)
+KBUILD_CFLAGS += $(call cc-option,-fgraphite-identity,)
+KBUILD_CFLAGS += $(call cc-option,-floop-nest-optimize,)
+KBUILD_CFLAGS += $(call cc-option,-fno-semantic-interposition,)
+KBUILD_CFLAGS += $(call cc-option,-fipa-pta,)
 endif
 
 # Tell gcc to never replace conditional load with a non-conditional one
@@ -939,7 +941,7 @@ endif
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-but-set-variable)
 
 ifeq ($(ld-name),lld)
-KBUILD_LDFLAGS += -O2
+KBUILD_LDFLAGS += --lto-O2
 endif
 
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)
@@ -1574,7 +1576,7 @@ endif # CONFIG_MODULES
 # make distclean Remove editor backup files, patch leftover files and the like
 
 # Directories & files removed with 'make clean'
-CLEAN_DIRS  += $(MODVERDIR)
+CLEAN_DIRS  += $(MODVERDIR) .thinlto-cache
 
 # Directories & files removed with 'make mrproper'
 MRPROPER_DIRS  += include/config usr/include include/generated          \
@@ -1821,7 +1823,7 @@ $(clean-dirs):
 	$(Q)$(MAKE) $(clean)=$(patsubst _clean_%,%,$@)
 
 clean:	rm-dirs := $(MODVERDIR)
-clean: rm-files := $(KBUILD_EXTMOD)/Module.symvers
+clean: rm-files := $(KBUILD_EXTMOD)/Module.symvers $(KBUILD_EXTMOD)/.thinlto-cache
 
 PHONY += help
 help:
