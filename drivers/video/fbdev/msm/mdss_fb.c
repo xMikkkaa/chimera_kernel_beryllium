@@ -46,9 +46,6 @@
 #include <linux/file.h>
 #include <linux/kthread.h>
 #include <linux/dma-buf.h>
-#include <linux/devfreq_boost.h>
-#include <linux/cpu_input_boost.h>
-
 #include "mdss_fb.h"
 #include "mdss_mdp_splash_logo.h"
 #define CREATE_TRACE_POINTS
@@ -3052,10 +3049,8 @@ static int __mdss_fb_wait_for_fence_sub(struct msm_sync_pt_data *sync_pt_data,
 				wait_ms = min_t(long, WAIT_FENCE_FINAL_TIMEOUT,
 						wait_ms);
 
-#ifdef CONFIG_SYNC_DEBUG
 			pr_warn("%s: sync_fence_wait timed out! ",
 					mdss_get_sync_fence_name(fences[i]));
-#endif
 			pr_cont("Waiting %ld.%ld more seconds\n",
 				(wait_ms/MSEC_PER_SEC), (wait_ms%MSEC_PER_SEC));
 			MDSS_XLOG(sync_pt_data->timeline_value);
@@ -5009,9 +5004,6 @@ int mdss_fb_do_ioctl(struct fb_info *info, unsigned int cmd,
 		ret = mdss_fb_mode_switch(mfd, dsi_mode);
 		break;
 	case MSMFB_ATOMIC_COMMIT:
-		cpu_input_boost_kick();
-		devfreq_boost_kick(DEVFREQ_MSM_CPUBW);
-		devfreq_boost_kick(DEVFREQ_MSM_LLCCBW);
 		ret = mdss_fb_atomic_commit_ioctl(info, argp, file);
 		break;
 

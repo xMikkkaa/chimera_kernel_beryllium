@@ -55,6 +55,7 @@ enum {
 };
 
 enum {
+	LSM_INVALID_SESSION_ID = 0,
 	LSM_MIN_SESSION_ID = 1,
 	LSM_MAX_SESSION_ID = 8,
 	LSM_CONTROL_SESSION = 0x0F,
@@ -268,7 +269,7 @@ static void q6lsm_session_free(struct lsm_client *client)
 	spin_lock_irqsave(&lsm_session_lock, flags);
 	lsm_session[client->session] = NULL;
 	spin_unlock_irqrestore(&lsm_session_lock, flags);
-	client->session = 0;
+	client->session = LSM_INVALID_SESSION_ID;
 }
 
 static void *q6lsm_mmap_apr_reg(void)
@@ -384,6 +385,10 @@ static int q6lsm_apr_send_pkt(struct lsm_client *client, void *handle,
 	}
 
 	pr_debug("%s: enter wait %d\n", __func__, wait);
+	if (mmap_handle_p) {
+		pr_debug("%s: Invalid mmap_handle\n", __func__);
+		return -EINVAL;
+	}
 	if (wait)
 		mutex_lock(&lsm_common.apr_lock);
 	if (mmap_p) {
@@ -427,6 +432,7 @@ static int q6lsm_apr_send_pkt(struct lsm_client *client, void *handle,
 	if (wait)
 		mutex_unlock(&lsm_common.apr_lock);
 
+	mmap_handle_p = NULL;
 	pr_debug("%s: leave ret %d\n", __func__, ret);
 	return ret;
 }
@@ -1384,7 +1390,8 @@ static int q6lsm_mmapcallback(struct apr_client_data *data, void *priv)
 	case LSM_SESSION_CMDRSP_SHARED_MEM_MAP_REGIONS:
 		if (atomic_read(&client->cmd_state) == CMD_STATE_WAIT_RESP) {
 			spin_lock_irqsave(&mmap_lock, flags);
-			*mmap_handle_p = command;
+			if (mmap_handle_p)
+				*mmap_handle_p = command;
 			/* spin_unlock_irqrestore implies barrier */
 			spin_unlock_irqrestore(&mmap_lock, flags);
 			atomic_set(&client->cmd_state, CMD_STATE_CLEARED);

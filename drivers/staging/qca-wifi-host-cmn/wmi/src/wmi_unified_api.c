@@ -615,20 +615,20 @@ QDF_STATUS wmi_unified_wow_remove_wakeup_pattern_send(void *wmi_hdl,
 /**
  * wmi_unified_ap_ps_cmd_send() - set ap powersave parameters
  * @wma_ctx: wma context
- * @macaddr: peer mac address
+ * @peer_addr: peer mac address
  * @param: pointer to ap_ps parameter structure
  *
  * Return: QDF_STATUS_SUCCESS on success and QDF_STATUS_E_FAILURE for failure
  */
 QDF_STATUS wmi_unified_ap_ps_cmd_send(void *wmi_hdl,
-					   uint8_t macaddr[IEEE80211_ADDR_LEN],
+					   uint8_t *peer_addr,
 					   struct ap_ps_params *param)
 {
 	wmi_unified_t wmi_handle = (wmi_unified_t) wmi_hdl;
 
 	if (wmi_handle->ops->send_set_ap_ps_param_cmd)
 		return wmi_handle->ops->send_set_ap_ps_param_cmd(wmi_handle,
-				  macaddr,
+				  peer_addr,
 				  param);
 
 	return QDF_STATUS_E_FAILURE;

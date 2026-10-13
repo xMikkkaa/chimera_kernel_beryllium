@@ -11,7 +11,6 @@ config ARM64
 	select ARCH_HAS_ELF_RANDOMIZE
 	select ARCH_HAS_FORTIFY_SOURCE
 	select ARCH_HAS_GCOV_PROFILE_ALL
-	select ARCH_SUPPORTS_PGO_CLANG
 	select ARCH_HAS_GIGANTIC_PAGE
 	select ARCH_HAS_KCOV
 	select ARCH_HAS_SG_CHAIN
@@ -35,13 +34,11 @@ config ARM64
 	select ARCH_USE_CMPXCHG_LOCKREF
 	select ARCH_USE_QUEUED_RWLOCKS
 	select ARCH_SUPPORTS_LTO_CLANG
-	select ARCH_SUPPORTS_THINLTO
 	select ARCH_SUPPORTS_ATOMIC_RMW
 	select ARCH_SUPPORTS_NUMA_BALANCING
 	select ARCH_WANT_COMPAT_IPC_PARSE_VERSION
 	select ARCH_WANT_FRAME_POINTERS
 	select ARCH_HAS_UBSAN_SANITIZE_ALL
-	select ARCH_HAS_SET_MEMORY
 	select ARM_AMBA
 	select ARM_ARCH_TIMER
 	select ARM_GIC
@@ -62,7 +59,6 @@ config ARM64
 	select GENERIC_CLOCKEVENTS_BROADCAST
 	select GENERIC_CPU_AUTOPROBE
 	select GENERIC_EARLY_IOREMAP
-	select GENERIC_FIND_FIRST_BIT
 	select GENERIC_IDLE_POLL_SETUP
 	select GENERIC_IRQ_PROBE
 	select GENERIC_IRQ_SHOW
@@ -87,7 +83,6 @@ config ARM64
 	select HAVE_ARCH_MMAP_RND_COMPAT_BITS if COMPAT
 	select HAVE_ARCH_SECCOMP_FILTER
 	select HAVE_ARCH_TRACEHOOK
-	select HAVE_MOVE_PMD
 	select HAVE_ARCH_TRANSPARENT_HUGEPAGE
 	select HAVE_ARM_SMCCC
 	select HAVE_EBPF_JIT
@@ -109,7 +104,6 @@ config ARM64
 	select HAVE_GENERIC_DMA_COHERENT
 	select HAVE_HW_BREAKPOINT if PERF_EVENTS
 	select HAVE_IRQ_TIME_ACCOUNTING
-	select HAVE_LD_DEAD_CODE_DATA_ELIMINATION
 	select HAVE_MEMBLOCK
 	select HAVE_MEMBLOCK_NODE_MAP if NUMA
 	select HAVE_PATA_PLATFORM
@@ -448,6 +442,7 @@ config ARM64_ERRATUM_845719
 
 config ARM64_ERRATUM_843419
 	bool "Cortex-A53: 843419: A load or store might access an incorrect address"
+	default y if !LTO_CLANG
 	select ARM64_MODULE_CMODEL_LARGE if MODULES
 	help
 	  This option links the kernel with '--fix-cortex-a53-843419' and
@@ -1096,7 +1091,6 @@ config ARM64_MODULE_PLTS
 
 config RELOCATABLE
 	bool
-	select ARCH_HAS_RELR
 	help
 	  This builds the kernel as a Position Independent Executable (PIE),
 	  which retains all relocation metadata required to relocate the
@@ -1186,13 +1180,6 @@ config CMDLINE_FORCE
 	  This is useful if you cannot or don't want to change the
 	  command-line options your boot loader passes to the kernel.
 endchoice
-
-config BOOT_INFO
-	bool "Boot information from bootloader"
-	default y
-	help
-	  On embedded Linux device, try to collect more information from
-	  bootloader to kernel, eg. powerup reason.
 
 config EFI_STUB
 	bool
@@ -1425,63 +1412,3 @@ source "arch/arm64/crypto/Kconfig"
 endif
 
 source "lib/Kconfig"
-
-source "techpack/Kconfig"
-
-# Xiaomi configuration options
-menu "Xiaomi configuration options"
-
-config MACH_XIAOMI
-        bool "Xiaomi device"
-        depends on ARCH_QCOM
-        help
-          Support for Xiaomi products
-
-config MACH_XIAOMI_SDM845
-        bool "Xiaomi SDM845"
-        depends on ARCH_SDM845
-        select MACH_XIAOMI
-        help
-          Support for SDM845-based Xiaomi variants
-
-menu "Xiaomi board selection"
-
-config MACH_XIAOMI_D5X
-        bool "D5X board"
-        select MACH_XIAOMI_SDM845
-        help
-          Support for Xiaomi MIX 2S (polaris)
-
-config MACH_XIAOMI_E1N
-        bool "E1N board"
-        select MACH_XIAOMI_SDM845
-        help
-          Support for Xiaomi Mi 8 (dipper)
-
-config MACH_XIAOMI_E10
-        bool "E10 board"
-        select MACH_XIAOMI_SDM845
-        help
-          Support for Xiaomi Poco F1 (beryllium)
-
-config MACH_XIAOMI_E1S
-        bool "E1S board"
-        select MACH_XIAOMI_SDM845
-        help
-          Support for Xiaomi Mi 8 Pro (equuleus)
-
-config MACH_XIAOMI_E8
-        bool "E8 board"
-        select MACH_XIAOMI_SDM845
-        help
-          Support for Xiaomi Mi 8 Explorer Edition (ursa)
-
-config MACH_XIAOMI_E5
-        bool "E5 board"
-        select MACH_XIAOMI_SDM845
-        help
-          Support for Xiaomi MIX 3 (perseus)
-
-endmenu
-
-endmenu

@@ -235,31 +235,57 @@
 	} while (0)
 
 #define PCIE_DBG(dev, fmt, arg...) do {			 \
+	if ((dev) && (dev)->ipc_log_long)   \
+		ipc_log_string((dev)->ipc_log_long, \
+			"DBG1:%s: " fmt, __func__, arg); \
+	if ((dev) && (dev)->ipc_log)   \
+		ipc_log_string((dev)->ipc_log, "%s: " fmt, __func__, arg); \
 	if (msm_pcie_debug_mask)   \
 		pr_alert("%s: " fmt, __func__, arg);		  \
 	} while (0)
 
 #define PCIE_DBG2(dev, fmt, arg...) do {			 \
+	if ((dev) && (dev)->ipc_log)   \
+		ipc_log_string((dev)->ipc_log, "DBG2:%s: " fmt, __func__, arg);\
 	if (msm_pcie_debug_mask)   \
 		pr_alert("%s: " fmt, __func__, arg);              \
 	} while (0)
 
 #define PCIE_DBG3(dev, fmt, arg...) do {			 \
+	if ((dev) && (dev)->ipc_log)   \
+		ipc_log_string((dev)->ipc_log, "DBG3:%s: " fmt, __func__, arg);\
 	if (msm_pcie_debug_mask)   \
 		pr_alert("%s: " fmt, __func__, arg);              \
 	} while (0)
 
-#define PCIE_DUMP(dev, fmt, arg...) ((void)0)
+#define PCIE_DUMP(dev, fmt, arg...) do {			\
+	if ((dev) && (dev)->ipc_log_dump) \
+		ipc_log_string((dev)->ipc_log_dump, \
+			"DUMP:%s: " fmt, __func__, arg); \
+	} while (0)
 
 #define PCIE_DBG_FS(dev, fmt, arg...) do {			\
+	if ((dev) && (dev)->ipc_log_dump) \
+		ipc_log_string((dev)->ipc_log_dump, \
+			"DBG_FS:%s: " fmt, __func__, arg); \
 	pr_alert("%s: " fmt, __func__, arg); \
 	} while (0)
 
 #define PCIE_INFO(dev, fmt, arg...) do {			 \
+	if ((dev) && (dev)->ipc_log_long)   \
+		ipc_log_string((dev)->ipc_log_long, \
+			"INFO:%s: " fmt, __func__, arg); \
+	if ((dev) && (dev)->ipc_log)   \
+		ipc_log_string((dev)->ipc_log, "%s: " fmt, __func__, arg); \
 	pr_info("%s: " fmt, __func__, arg);  \
 	} while (0)
 
 #define PCIE_ERR(dev, fmt, arg...) do {			 \
+	if ((dev) && (dev)->ipc_log_long)   \
+		ipc_log_string((dev)->ipc_log_long, \
+			"ERR:%s: " fmt, __func__, arg); \
+	if ((dev) && (dev)->ipc_log)   \
+		ipc_log_string((dev)->ipc_log, "%s: " fmt, __func__, arg); \
 	pr_err("%s: " fmt, __func__, arg);  \
 	} while (0)
 
@@ -3747,7 +3773,7 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 
 	/* assert PCIe reset link to keep EP in reset */
 
-	PCIE_DBG(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+	PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 				dev->gpio[MSM_PCIE_GPIO_PERST].on);
@@ -3870,7 +3896,7 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 		dev->rc_idx, retries);
 
 	if (pcie_phy_is_ready(dev))
-		PCIE_DBG(dev, "PCIe RC%d PHY is ready!\n", dev->rc_idx);
+		PCIE_INFO(dev, "PCIe RC%d PHY is ready!\n", dev->rc_idx);
 	else {
 		PCIE_ERR(dev, "PCIe PHY RC%d failed to come up!\n",
 			dev->rc_idx);
@@ -3888,7 +3914,7 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 
 	/* de-assert PCIe reset link to bring EP out of reset */
 
-	PCIE_DBG(dev, "PCIe: Release the reset of endpoint of RC%d.\n",
+	PCIE_INFO(dev, "PCIe: Release the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 				1 - dev->gpio[MSM_PCIE_GPIO_PERST].on);
@@ -3933,9 +3959,9 @@ static int msm_pcie_enable(struct msm_pcie_dev_t *dev, u32 options)
 		msm_pcie_confirm_linkup(dev, false, false, NULL)) {
 		PCIE_DBG(dev, "Link is up after %d checkings\n",
 			link_check_count);
-		PCIE_DBG(dev, "PCIe RC%d link initialized\n", dev->rc_idx);
+		PCIE_INFO(dev, "PCIe RC%d link initialized\n", dev->rc_idx);
 	} else {
-		PCIE_DBG(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+		PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 			dev->rc_idx);
 		gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
 			dev->gpio[MSM_PCIE_GPIO_PERST].on);
@@ -4039,7 +4065,7 @@ static void msm_pcie_disable(struct msm_pcie_dev_t *dev, u32 options)
 	dev->power_on = false;
 	dev->link_turned_off_counter++;
 
-	PCIE_DBG(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
+	PCIE_INFO(dev, "PCIe: Assert the reset of endpoint of RC%d.\n",
 		dev->rc_idx);
 
 	gpio_set_value(dev->gpio[MSM_PCIE_GPIO_PERST].num,
@@ -6177,16 +6203,14 @@ static struct platform_driver msm_pcie_driver = {
 static int __init pcie_init(void)
 {
 	int ret = 0, i;
-#ifdef CONFIG_IPC_LOGGING
 	char rc_name[MAX_RC_NAME_LEN];
-#endif
+
 	pr_alert("pcie:%s.\n", __func__);
 
 	pcie_drv.rc_num = 0;
 	mutex_init(&pcie_drv.drv_lock);
 
 	for (i = 0; i < MAX_RC_NUM; i++) {
-#ifdef CONFIG_IPC_LOGGING
 		snprintf(rc_name, MAX_RC_NAME_LEN, "pcie%d-short", i);
 		msm_pcie_dev[i].ipc_log =
 			ipc_log_context_create(PCIE_LOG_PAGES, rc_name, 0);
@@ -6217,7 +6241,6 @@ static int __init pcie_init(void)
 			PCIE_DBG(&msm_pcie_dev[i],
 				"PCIe IPC logging %s is enable for RC%d\n",
 				rc_name, i);
-#endif
 		spin_lock_init(&msm_pcie_dev[i].cfg_lock);
 		msm_pcie_dev[i].cfg_access = true;
 		mutex_init(&msm_pcie_dev[i].enumerate_lock);

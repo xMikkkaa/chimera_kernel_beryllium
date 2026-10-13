@@ -555,19 +555,29 @@ static void pm_qos_irq_release(struct kref *ref)
 }
 
 static void pm_qos_irq_notify(struct irq_affinity_notify *notify,
-		const cpumask_t *mask)
+		const cpumask_t *unused_mask)
 {
 	unsigned long flags;
 	struct pm_qos_request *req = container_of(notify,
 					struct pm_qos_request, irq_notify);
 	struct pm_qos_constraints *c =
 				pm_qos_array[req->pm_qos_class]->constraints;
+	struct irq_desc *desc = irq_to_desc(req->irq);
+	struct cpumask *new_affinity =
+			irq_data_get_effective_affinity_mask(&desc->irq_data);
+	bool affinity_changed = false;
 
 	spin_lock_irqsave(&pm_qos_lock, flags);
-	cpumask_copy(&req->cpus_affine, mask);
+	if (!cpumask_equal(&req->cpus_affine, new_affinity)) {
+		cpumask_copy(&req->cpus_affine, new_affinity);
+		affinity_changed = true;
+	}
+
 	spin_unlock_irqrestore(&pm_qos_lock, flags);
 
-	pm_qos_update_target(c, req, PM_QOS_UPDATE_REQ, req->node.prio);
+	if (affinity_changed)
+		pm_qos_update_target(c, req, PM_QOS_UPDATE_REQ,
+				     req->node.prio);
 }
 #endif
 
@@ -612,9 +622,16 @@ void pm_qos_add_request(struct pm_qos_request *req,
 			if (!desc)
 				return;
 
-			mask = desc->irq_data.common->affinity;
+			/*
+			 * If the IRQ is not started, the effective affinity
+			 * won't be set. So fallback to the default affinity.
+			 */
+			mask = irq_data_get_effective_affinity_mask(
+						&desc->irq_data);
+			if (cpumask_empty(mask))
+				mask = irq_data_get_affinity_mask(
+						&desc->irq_data);
 
-			/* Get the current affinity */
 			cpumask_copy(&req->cpus_affine, mask);
 			req->irq_notify.irq = req->irq;
 			req->irq_notify.notify = pm_qos_irq_notify;
@@ -888,9 +905,6 @@ static ssize_t pm_qos_power_write(struct file *filp, const char __user *buf,
 	s32 value;
 	struct pm_qos_request *req;
 
-	/* Don't let userspace impose restrictions on CPU idle levels */
-	return count;
-
 	if (count == sizeof(s32)) {
 		if (copy_from_user(&value, buf, sizeof(s32)))
 			return -EFAULT;
@@ -900,15 +914,6 @@ static ssize_t pm_qos_power_write(struct file *filp, const char __user *buf,
 		ret = kstrtos32_from_user(buf, count, 16, &value);
 		if (ret)
 			return ret;
-	}
-
-	switch (value) {
-		case 0x44:
-			value = 44;
-			break;
-		case 0x100:
-			return count;
-			break;
 	}
 
 	req = filp->private_data;

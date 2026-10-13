@@ -264,7 +264,17 @@ static struct glink_core_version versions[] = {
 	{1, TRACER_PKT_FEATURE, negotiate_features_v1},
 };
 
-#define SMEM_IPC_LOG(einfo, str, id, param1, param2) ((void)0)
+#define SMEM_IPC_LOG(einfo, str, id, param1, param2) do { \
+	if ((glink_xprt_debug_mask & QCOM_GLINK_DEBUG_ENABLE) \
+		&& (einfo->debug_mask & QCOM_GLINK_DEBUG_ENABLE)) \
+		ipc_log_string(einfo->log_ctx, \
+				"%s: Rx:%x:%x Tx:%x:%x Cmd:%x P1:%x P2:%x\n", \
+				str, einfo->rx_ch_desc->read_index, \
+				einfo->rx_ch_desc->write_index, \
+				einfo->tx_ch_desc->read_index, \
+				einfo->tx_ch_desc->write_index, \
+				id, param1, param2); \
+} while (0) \
 
 enum {
 	QCOM_GLINK_DEBUG_ENABLE = 1U << 0,
@@ -691,11 +701,12 @@ static int fifo_tx(struct edge_info *einfo, const void *data, int len)
 	DEFINE_WAIT(wait);
 
 	spin_lock_irqsave(&einfo->write_lock, flags);
-	while (fifo_write_avail(einfo) < len) {
+	while (fifo_write_avail(einfo) < len || einfo->tx_blocked_signal_sent) {
 		send_tx_blocked_signal(einfo);
 		prepare_to_wait(&einfo->tx_blocked_queue, &wait,
 							TASK_UNINTERRUPTIBLE);
-		if (fifo_write_avail(einfo) < len && !einfo->in_ssr) {
+		if ((fifo_write_avail(einfo) < len
+			|| einfo->tx_blocked_signal_sent) && !einfo->in_ssr) {
 			spin_unlock_irqrestore(&einfo->write_lock, flags);
 			schedule();
 			spin_lock_irqsave(&einfo->write_lock, flags);
@@ -960,9 +971,9 @@ static void __rx_worker(struct edge_info *einfo, bool atomic_ctx)
 	if (ret)
 		einfo->xprt_if.glink_core_if_ptr->link_up(&einfo->xprt_if);
 
-	if ((atomic_ctx) && ((einfo->tx_resume_needed) ||
-		(einfo->tx_blocked_signal_sent) ||
-		(waitqueue_active(&einfo->tx_blocked_queue)))) /* tx waiting ?*/
+	if ((atomic_ctx) && ((einfo->tx_resume_needed)
+	    || (einfo->tx_blocked_signal_sent)
+	    || (waitqueue_active(&einfo->tx_blocked_queue)))) /* tx waiting ?*/
 		tx_wakeup_worker(einfo);
 
 	/*
@@ -2084,7 +2095,7 @@ static int tx_data(struct glink_transport_if *if_ptr, uint16_t cmd_id,
 	}
 
 	/* Need enough space to write the command and some data */
-	if (size <= sizeof(cmd)) {
+	if (size <= sizeof(cmd) || einfo->tx_blocked_signal_sent) {
 		einfo->tx_resume_needed = true;
 		send_tx_blocked_signal(einfo);
 		spin_unlock_irqrestore(&einfo->write_lock, flags);
@@ -2431,9 +2442,7 @@ static int glink_smem_native_probe(struct platform_device *pdev)
 	uint32_t irq_mask;
 	struct resource *r;
 	u32 *cpu_array;
-#ifdef CONFIG_IPC_LOGGING
 	char log_name[GLINK_NAME_SIZE*2+7] = {0};
-#endif
 
 	node = pdev->dev.of_node;
 
@@ -2594,7 +2603,6 @@ static int glink_smem_native_probe(struct platform_device *pdev)
 	}
 
 	einfo->debug_mask = QCOM_GLINK_DEBUG_ENABLE;
-#ifdef CONFIG_IPC_LOGGING
 	snprintf(log_name, sizeof(log_name), "%s_%s_xprt",
 			einfo->xprt_cfg.edge, einfo->xprt_cfg.name);
 	if (einfo->debug_mask & QCOM_GLINK_DEBUG_ENABLE)
@@ -2604,7 +2612,6 @@ static int glink_smem_native_probe(struct platform_device *pdev)
 		GLINK_ERR("%s: unable to create log context for [%s:%s]\n",
 			__func__, einfo->xprt_cfg.edge,
 			einfo->xprt_cfg.name);
-#endif
 	register_debugfs_info(einfo);
 	/* fake an interrupt on this edge to see if the remote side is up */
 	irq_handler(0, einfo);
@@ -2645,9 +2652,8 @@ static int glink_rpm_native_probe(struct platform_device *pdev)
 	char toc[RPM_TOC_SIZE];
 	uint32_t *tocp;
 	uint32_t num_toc_entries;
-#ifdef CONFIG_IPC_LOGGING
 	char log_name[GLINK_NAME_SIZE*2+7] = {0};
-#endif
+
 	node = pdev->dev.of_node;
 
 	einfo = kzalloc(sizeof(*einfo), GFP_KERNEL);
@@ -2853,7 +2859,6 @@ static int glink_rpm_native_probe(struct platform_device *pdev)
 		pr_err("%s: enable_irq_wake() failed on %d\n", __func__,
 								irq_line);
 	einfo->debug_mask = QCOM_GLINK_DEBUG_DISABLE;
-	#ifdef CONFIG_IPC_LOGGING
 	snprintf(log_name, sizeof(log_name), "%s_%s_xprt",
 			einfo->xprt_cfg.edge, einfo->xprt_cfg.name);
 	if (einfo->debug_mask & QCOM_GLINK_DEBUG_ENABLE)
@@ -2863,7 +2868,6 @@ static int glink_rpm_native_probe(struct platform_device *pdev)
 		GLINK_ERR("%s: unable to create log context for [%s:%s]\n",
 			__func__, einfo->xprt_cfg.edge,
 			einfo->xprt_cfg.name);
-#endif
 	register_debugfs_info(einfo);
 	einfo->xprt_if.glink_core_if_ptr->link_up(&einfo->xprt_if);
 	return 0;

@@ -62,30 +62,29 @@ archive_builtin()
 	fi
 }
 
-# If CONFIG_LTO_CLANG is selected, generate a linker script to ensure correct
-# ordering of initcalls, and with CONFIG_MODVERSIONS also enabled, collect the
-# previously generated symbol versions into the same script.
-lto_lds()
+# If CONFIG_LTO_CLANG is selected, collect generated symbol versions into
+# .tmp_symversions
+modversions()
 {
 	if [ -z "${CONFIG_LTO_CLANG}" ]; then
 		return
 	fi
 
-	${srctree}/scripts/generate_initcall_order.pl \
-		built-in.o ${KBUILD_VMLINUX_LIBS} \
-		> .tmp_lto.lds
-
-	if [ -n "${CONFIG_MODVERSIONS}" ]; then
-		for a in built-in.o ${KBUILD_VMLINUX_LIBS}; do
-			for o in $(${AR} t $a); do
-				if [ -f ${o}.symversions ]; then
-					cat ${o}.symversions >> .tmp_lto.lds
-				fi
-			done
-		done
+	if [ -z "${CONFIG_MODVERSIONS}" ]; then
+		return
 	fi
 
-	echo "-T .tmp_lto.lds"
+	rm -f .tmp_symversions
+
+	for a in built-in.o ${KBUILD_VMLINUX_LIBS}; do
+		for o in $(${AR} t $a); do
+			if [ -f ${o}.symversions ]; then
+				cat ${o}.symversions >> .tmp_symversions
+			fi
+		done
+	done
+
+	echo "-T .tmp_symversions"
 }
 
 # Link of vmlinux.o used for section mismatch analysis
@@ -111,7 +110,7 @@ modpost_link()
 		info LD vmlinux.o
 	fi
 
-	${LDFINAL} ${LDFLAGS} -r -o ${1} $(lto_lds) ${objects}
+	${LD} ${LDFLAGS} -r -o ${1} $(modversions) ${objects}
 }
 
 # If CONFIG_LTO_CLANG is selected, we postpone running recordmcount until
@@ -136,7 +135,7 @@ vmlinux_link()
 	local objects
 
 	if [ "${SRCARCH}" != "um" ]; then
-		local ld=${LDFINAL}
+		local ld=${LD}
 		local ldflags="${LDFLAGS} ${LDFLAGS_vmlinux}"
 
 		if [ -n "${LDFINAL_vmlinux}" ]; then
@@ -201,7 +200,7 @@ kallsyms()
 
 	local afile="`basename ${2} .o`.S"
 
-	${NM} -n ${1} 2>/dev/null | scripts/kallsyms ${kallsymopt} > ${afile}
+	${NM} -n ${1} | scripts/kallsyms ${kallsymopt} > ${afile}
 	${CC} ${aflags} -c -o ${2} ${afile}
 }
 
@@ -249,7 +248,7 @@ cleanup()
 	rm -f .tmp_System.map
 	rm -f .tmp_kallsyms*
 	rm -f .tmp_version
-	rm -f .tmp_lto.lds
+	rm -f .tmp_symversions
 	rm -f .tmp_vmlinux*
 	rm -f built-in.o
 	rm -f System.map

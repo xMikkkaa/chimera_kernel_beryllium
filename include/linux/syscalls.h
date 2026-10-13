@@ -48,6 +48,7 @@ struct stat;
 struct stat64;
 struct statfs;
 struct statfs64;
+struct statx;
 struct __sysctl_args;
 struct sysinfo;
 struct timespec;
@@ -60,7 +61,6 @@ struct mq_attr;
 struct compat_stat;
 struct compat_timeval;
 struct robust_list_head;
-struct futex_waitv;
 struct getcpu_cache;
 struct old_linux_dirent;
 struct perf_event_attr;
@@ -826,10 +826,6 @@ asmlinkage long sys_get_robust_list(int pid,
 				    size_t __user *len_ptr);
 asmlinkage long sys_set_robust_list(struct robust_list_head __user *head,
 				    size_t len);
-
-asmlinkage long sys_futex_waitv(struct futex_waitv *waiters,
-				unsigned int nr_futexes, unsigned int flags,
-				struct timespec __user *timeout, clockid_t clockid);
 asmlinkage long sys_getcpu(unsigned __user *cpu, unsigned __user *node, struct getcpu_cache __user *cache);
 asmlinkage long sys_signalfd(int ufd, sigset_t __user *user_mask, size_t sizemask);
 asmlinkage long sys_signalfd4(int ufd, sigset_t __user *user_mask, size_t sizemask, int flags);
@@ -928,6 +924,8 @@ asmlinkage long sys_pkey_mprotect(unsigned long start, size_t len,
 				  unsigned long prot, int pkey);
 asmlinkage long sys_pkey_alloc(unsigned long flags, unsigned long init_val);
 asmlinkage long sys_pkey_free(int pkey);
+asmlinkage long sys_statx(int dfd, const char __user *path, unsigned flags,
+			  unsigned mask, struct statx __user *buffer);
 asmlinkage long sys_pidfd_send_signal(int pidfd, int sig,
 				       siginfo_t __user *info,
 				       unsigned int flags);

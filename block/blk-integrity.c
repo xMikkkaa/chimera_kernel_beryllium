@@ -55,7 +55,7 @@ int blk_rq_count_integrity_sg(struct request_queue *q, struct bio *bio)
 			if (!BIOVEC_SEG_BOUNDARY(q, &ivprv, &iv))
 				goto new_segment;
 
-			if (iv.bv_len > queue_max_segment_size(q) - seg_size)
+			if (seg_size + iv.bv_len > queue_max_segment_size(q))
 				goto new_segment;
 
 			seg_size += iv.bv_len;
@@ -101,7 +101,7 @@ int blk_rq_map_integrity_sg(struct request_queue *q, struct bio *bio,
 			if (!BIOVEC_SEG_BOUNDARY(q, &ivprv, &iv))
 				goto new_segment;
 
-			if (iv.bv_len > queue_max_segment_size(q) - sg->length)
+			if (sg->length + iv.bv_len > queue_max_segment_size(q))
 				goto new_segment;
 
 			sg->length += iv.bv_len;

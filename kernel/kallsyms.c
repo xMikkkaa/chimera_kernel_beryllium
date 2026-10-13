@@ -12,6 +12,7 @@
  *      compression (see scripts/kallsyms.c for a more complete description)
  */
 #include <linux/kallsyms.h>
+#include <linux/module.h>
 #include <linux/init.h>
 #include <linux/seq_file.h>
 #include <linux/fs.h>
@@ -19,14 +20,18 @@
 #include <linux/err.h>
 #include <linux/proc_fs.h>
 #include <linux/sched.h>	/* for cond_resched */
+#include <linux/mm.h>
 #include <linux/ctype.h>
 #include <linux/slab.h>
-#include <linux/filter.h>
 #include <linux/compiler.h>
 
-#ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
-#include <linux/susfs_def.h>
-#endif // #ifdef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
+#include <asm/sections.h>
+
+#ifdef CONFIG_KALLSYMS_ALL
+#define all_var 1
+#else
+#define all_var 0
+#endif
 
 /*
  * These will be re-linked against their real values
@@ -50,6 +55,37 @@ extern const u8 kallsyms_token_table[] __weak;
 extern const u16 kallsyms_token_index[] __weak;
 
 extern const unsigned long kallsyms_markers[] __weak;
+
+static inline int is_kernel_inittext(unsigned long addr)
+{
+	if (addr >= (unsigned long)_sinittext
+	    && addr <= (unsigned long)_einittext)
+		return 1;
+	return 0;
+}
+
+static inline int is_kernel_text(unsigned long addr)
+{
+	if ((addr >= (unsigned long)_stext && addr <= (unsigned long)_etext) ||
+	    arch_is_kernel_text(addr))
+		return 1;
+	return in_gate_area_no_mm(addr);
+}
+
+static inline int is_kernel(unsigned long addr)
+{
+	if (addr >= (unsigned long)_stext && addr <= (unsigned long)_end)
+		return 1;
+	return in_gate_area_no_mm(addr);
+}
+
+static int is_ksym_addr(unsigned long addr)
+{
+	if (all_var)
+		return is_kernel(addr);
+
+	return is_kernel_text(addr) || is_kernel_inittext(addr);
+}
 
 /*
  * Expand a compressed symbol data into the resulting uncompressed string,
@@ -162,7 +198,7 @@ static unsigned long kallsyms_sym_address(int idx)
 }
 
 /* Lookup the address for this symbol. Returns 0 if not found. */
-__visible unsigned long kallsyms_lookup_name(const char *name)
+unsigned long kallsyms_lookup_name(const char *name)
 {
 	char namebuf[KSYM_NAME_LEN];
 	unsigned long i;
@@ -243,7 +279,7 @@ static unsigned long get_symbol_pos(unsigned long addr,
 	if (!symbol_end) {
 		if (is_kernel_inittext(addr))
 			symbol_end = (unsigned long)_einittext;
-		else if (IS_ENABLED(CONFIG_KALLSYMS_ALL))
+		else if (all_var)
 			symbol_end = (unsigned long)_end;
 		else
 			symbol_end = (unsigned long)_etext;
@@ -266,8 +302,8 @@ int kallsyms_lookup_size_offset(unsigned long addr, unsigned long *symbolsize,
 	char namebuf[KSYM_NAME_LEN];
 	if (is_ksym_addr(addr))
 		return !!get_symbol_pos(addr, symbolsize, offset);
-	return !!module_address_lookup(addr, symbolsize, offset, NULL, namebuf) ||
-	       !!__bpf_address_lookup(addr, symbolsize, offset, namebuf);
+
+	return !!module_address_lookup(addr, symbolsize, offset, NULL, namebuf);
 }
 
 #ifdef CONFIG_CFI_CLANG
@@ -300,8 +336,6 @@ const char *kallsyms_lookup(unsigned long addr,
 			    unsigned long *offset,
 			    char **modname, char *namebuf)
 {
-	const char *ret;
-
 	namebuf[KSYM_NAME_LEN - 1] = 0;
 	namebuf[0] = 0;
 
@@ -317,13 +351,10 @@ const char *kallsyms_lookup(unsigned long addr,
 		goto found;
 	}
 
-	/* See if it's in a module or a BPF JITed image. */
-	ret = module_address_lookup(addr, symbolsize, offset,
-				    modname, namebuf);
-	if (!ret)
-		ret = bpf_address_lookup(addr, symbolsize,
-					 offset, modname, namebuf);
-	return ret;
+	/* See if it's in a module. */
+	if (!module_address_lookup(addr, symbolsize, offset, modname,
+				     namebuf))
+		return NULL;
 
 found:
 	cleanup_symbol_name(namebuf);
@@ -479,37 +510,21 @@ EXPORT_SYMBOL(__print_symbol);
 /* To avoid using get_symbol_offset for every symbol, we carry prefix along. */
 struct kallsym_iter {
 	loff_t pos;
-	loff_t pos_mod_end;
 	unsigned long value;
 	unsigned int nameoff; /* If iterating in core kernel symbols. */
 	char type;
 	char name[KSYM_NAME_LEN];
 	char module_name[MODULE_NAME_LEN];
 	int exported;
-	int show_value;
 };
 
 static int get_ksymbol_mod(struct kallsym_iter *iter)
 {
-	int ret = module_get_kallsym(iter->pos - kallsyms_num_syms,
-				     &iter->value, &iter->type,
-				     iter->name, iter->module_name,
-				     &iter->exported);
-	if (ret < 0) {
-		iter->pos_mod_end = iter->pos;
+	if (module_get_kallsym(iter->pos - kallsyms_num_syms, &iter->value,
+				&iter->type, iter->name, iter->module_name,
+				&iter->exported) < 0)
 		return 0;
-	}
-
 	return 1;
-}
-
-static int get_ksymbol_bpf(struct kallsym_iter *iter)
-{
-	strlcpy(iter->module_name, "bpf", MODULE_NAME_LEN);
-	iter->exported = 0;
-	return bpf_get_kallsym(iter->pos - iter->pos_mod_end,
-			       &iter->value, &iter->type,
-			       iter->name) < 0 ? 0 : 1;
 }
 
 /* Returns space to next name. */
@@ -532,30 +547,16 @@ static void reset_iter(struct kallsym_iter *iter, loff_t new_pos)
 	iter->name[0] = '\0';
 	iter->nameoff = get_symbol_offset(new_pos);
 	iter->pos = new_pos;
-	if (new_pos == 0)
-		iter->pos_mod_end = 0;
-}
-
-static int update_iter_mod(struct kallsym_iter *iter, loff_t pos)
-{
-	iter->pos = pos;
-
-	if (iter->pos_mod_end > 0 &&
-	    iter->pos_mod_end < iter->pos)
-		return get_ksymbol_bpf(iter);
-
-	if (!get_ksymbol_mod(iter))
-		return get_ksymbol_bpf(iter);
-
-	return 1;
 }
 
 /* Returns false if pos at or past end of file. */
 static int update_iter(struct kallsym_iter *iter, loff_t pos)
 {
 	/* Module symbols can be accessed randomly. */
-	if (pos >= kallsyms_num_syms)
-		return update_iter_mod(iter, pos);
+	if (pos >= kallsyms_num_syms) {
+		iter->pos = pos;
+		return get_ksymbol_mod(iter);
+	}
 
 	/* If we're not on the desired position, reset to new position. */
 	if (pos != iter->pos)
@@ -607,67 +608,8 @@ static int s_show(struct seq_file *m, void *p)
 		seq_printf(m, "%pK %c %s\t[%s]\n", (void *)iter->value,
 			   type, iter->name, iter->module_name);
 	} else
-#ifndef CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS
 		seq_printf(m, "%pK %c %s\n", (void *)iter->value,
 			   iter->type, iter->name);
-#else
-	{
-		/* First-char dispatch: skip the prefix chain for the vast
-		 * majority of symbols that cannot match any of them. */
-		const char *sym_name = iter->name;
-		bool hide_symbol = false;
-
-		if (likely(sym_name)) {
-			switch (sym_name[0]) {
-			case 'k':
-				hide_symbol = susfs_starts_with(sym_name, "ksu_") ||
-					susfs_starts_with(sym_name, "ksud") ||
-					susfs_starts_with(sym_name, "kernelsu");
-				break;
-			case '_':
-				hide_symbol = susfs_starts_with(sym_name, "__ksu_") ||
-					susfs_starts_with(sym_name, "__initcall__kmod_kernelsu");
-				break;
-			case 's':
-				hide_symbol = susfs_starts_with(sym_name, "susfs_") ||
-					susfs_starts_with(sym_name, "setup_selinux") ||
-					susfs_starts_with(sym_name, "setenforce");
-				break;
-			case 'i':
-				hide_symbol = susfs_starts_with(sym_name, "is_ksu_") ||
-					susfs_starts_with(sym_name, "is_manager_") ||
-					susfs_starts_with(sym_name, "is_zygote");
-				break;
-			case 'e':
-				hide_symbol = susfs_starts_with(sym_name, "escape_to_");
-				break;
-			case 't':
-				hide_symbol = susfs_starts_with(sym_name, "track_throne") ||
-					susfs_starts_with(sym_name, "try_umount");
-				break;
-			case 'o':
-				hide_symbol = susfs_starts_with(sym_name, "on_post_fs_data");
-				break;
-			case 'a':
-				hide_symbol = susfs_starts_with(sym_name, "apply_kernelsu");
-				break;
-			case 'h':
-				hide_symbol = susfs_starts_with(sym_name, "handle_sepolicy");
-				break;
-			case 'g':
-				hide_symbol = susfs_starts_with(sym_name, "getenforce");
-				break;
-			default:
-				break;
-			}
-		}
-		if (unlikely(hide_symbol)) {
-			return 0;
-		}
-		seq_printf(m, "%pK %c %s\n", (void *)iter->value,
-			   iter->type, iter->name);
-	}
-#endif
 	return 0;
 }
 
@@ -677,40 +619,6 @@ static const struct seq_operations kallsyms_op = {
 	.stop = s_stop,
 	.show = s_show
 };
-
-static inline int kallsyms_for_perf(void)
-{
-#ifdef CONFIG_PERF_EVENTS
-	extern int sysctl_perf_event_paranoid;
-	if (sysctl_perf_event_paranoid <= 1)
-		return 1;
-#endif
-	return 0;
-}
-
-/*
- * We show kallsyms information even to normal users if we've enabled
- * kernel profiling and are explicitly not paranoid (so kptr_restrict
- * is clear, and sysctl_perf_event_paranoid isn't set).
- *
- * Otherwise, require CAP_SYSLOG (assuming kptr_restrict isn't set to
- * block even that).
- */
-int kallsyms_show_value(void)
-{
-	switch (kptr_restrict) {
-	case 0:
-		if (kallsyms_for_perf())
-			return 1;
-	/* fallthrough */
-	case 1:
-		if (has_capability_noaudit(current, CAP_SYSLOG))
-			return 1;
-	/* fallthrough */
-	default:
-		return 0;
-	}
-}
 
 static int kallsyms_open(struct inode *inode, struct file *file)
 {
@@ -725,7 +633,6 @@ static int kallsyms_open(struct inode *inode, struct file *file)
 		return -ENOMEM;
 	reset_iter(iter, 0);
 
-	iter->show_value = kallsyms_show_value();
 	return 0;
 }
 

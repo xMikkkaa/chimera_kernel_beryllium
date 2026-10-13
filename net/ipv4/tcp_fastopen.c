@@ -9,11 +9,7 @@
 #include <net/inetpeer.h>
 #include <net/tcp.h>
 
-int sysctl_tcp_fastopen __read_mostly = TFO_CLIENT_ENABLE |
-					TFO_SERVER_ENABLE |
-					TFO_CLIENT_NO_COOKIE |
-					TFO_SERVER_COOKIE_NOT_REQD |
-					TFO_SERVER_WO_SOCKOPT1;
+int sysctl_tcp_fastopen __read_mostly = TFO_CLIENT_ENABLE;
 
 struct tcp_fastopen_context __rcu *tcp_fastopen_ctx;
 
@@ -221,7 +217,11 @@ static struct sock *tcp_fastopen_create_child(struct sock *sk,
 	atomic_set(&req->rsk_refcnt, 2);
 
 	/* Now finish processing the fastopen child socket. */
-	tcp_init_transfer(child, BPF_SOCK_OPS_PASSIVE_ESTABLISHED_CB);
+	inet_csk(child)->icsk_af_ops->rebuild_header(child);
+	tcp_init_congestion_control(child);
+	tcp_mtup_init(child);
+	tcp_init_metrics(child);
+	tcp_init_buffer_space(child);
 
 	tp->rcv_nxt = TCP_SKB_CB(skb)->seq + 1;
 

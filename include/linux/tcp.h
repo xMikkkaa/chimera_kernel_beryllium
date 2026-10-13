@@ -85,6 +85,7 @@ struct tcp_sack_block {
 
 /*These are used to set the sack_ok field in struct tcp_options_received */
 #define TCP_SACK_SEEN     (1 << 0)   /*1 = peer is SACK capable, */
+#define TCP_FACK_ENABLED  (1 << 1)   /*1 = FACK is enabled locally*/
 #define TCP_DSACK_SEEN    (1 << 2)   /*1 = DSACK was received from peer*/
 
 struct tcp_options_received {
@@ -122,7 +123,7 @@ struct tcp_request_sock_ops;
 struct tcp_request_sock {
 	struct inet_request_sock 	req;
 	const struct tcp_request_sock_ops *af_specific;
-	u64				snt_synack; /* first SYNACK sent time */
+	struct skb_mstamp		snt_synack; /* first SYNACK sent time */
 	bool				tfo_listener;
 	u32				txhash;
 	u32				rcv_isn;
@@ -182,7 +183,6 @@ struct tcp_sock {
 				 */
 	struct u64_stats_sync syncp; /* protects 64bit vars (cf tcp_get_info()) */
 
-	u8	fast_ack_mode:2; /* which fast ack mode ? */
  	u32	snd_una;	/* First byte we want an ack for	*/
  	u32	snd_sml;	/* Last byte of the most recently transmitted small packet */
 	u32	rcv_tstamp;	/* timestamp of last received ACK (for keepalives) */
@@ -192,6 +192,7 @@ struct tcp_sock {
 	u32	tsoffset;	/* timestamp offset */
 
 	struct list_head tsq_node; /* anchor in tsq_tasklet.head list */
+	unsigned long	tsq_flags;
 
 	/* Data for direct copy to user */
 	struct {
@@ -212,9 +213,7 @@ struct tcp_sock {
 
 	/* Information of the most recently (s)acked skb */
 	struct tcp_rack {
-		u64 mstamp; /* (Re)sent time of the skb */
-		u32 rtt_us;  /* Associated RTT */
-		u32 end_seq; /* Ending TCP sequence of the skb */
+		struct skb_mstamp mstamp; /* (Re)sent time of the skb */
 		u8 advanced; /* mstamp advanced since last lost marking */
 		u8 reord;    /* reordering detected */
 	} rack;
@@ -222,32 +221,25 @@ struct tcp_sock {
 	u8	tlp_retrans:1,	/* TLP is a retransmission */
 		unused_1:7;
 	u8	rate_app_limited:1,  /* rate_{delivered,interval_us} limited? */
-		tlp_orig_data_app_limited: 1, /* app-limited before TLP rtx? */
 		fastopen_connect:1, /* FASTOPEN_CONNECT sockopt */
 		is_sack_reneg:1,    /* in recovery from loss with SACK reneg? */
-		chrono_type:2,	/* current chronograph type */
 		unused:5;
 	u8	nonagle     : 4,/* Disable Nagle algorithm?             */
 		thin_lto    : 1,/* Use linear timeouts for thin streams */
-		unused1	    : 1,
+		thin_dupack : 1,/* Fast retransmit on first dupack      */
 		repair      : 1,
 		frto        : 1;/* F-RTO (RFC5682) activated in CA_Loss */
 	u8	repair_queue;
-	u8	syn_data:1,	/* SYN includes data */
+	u8	do_early_retrans:1,/* Enable RFC5827 early-retransmit  */
+		syn_data:1,	/* SYN includes data */
 		syn_fastopen:1,	/* SYN includes Fast Open option */
 		syn_fastopen_exp:1,/* SYN includes Fast Open exp. option */
 		syn_data_acked:1,/* data in SYN is acked by SYN-ACK */
 		save_syn:1,	/* Save headers of SYN packet */
 		is_cwnd_limited:1;/* forward progress limited by snd_cwnd? */
-	u32	chrono_start;	/* Start time in jiffies of a TCP chrono */
-	u32	chrono_stat[3];	/* Time in jiffies for chrono_stat stats */
 	u32	tlp_high_seq;	/* snd_nxt at the time of TLP */
 
-	u64	tcp_wstamp_ns;	/* departure time for next sent data packet */
-	u64	tcp_clock_cache; /* cache last tcp_clock_ns() (see tcp_mstamp_refresh()) */
-
 /* RTT measurement */
-	u64	tcp_mstamp;	/* most recent packet received/sent */
 	u32	srtt_us;	/* smoothed round trip time << 3 in usecs */
 	u32	mdev_us;	/* medium deviation			*/
 	u32	mdev_max_us;	/* maximal mdev for the last rtt period	*/
@@ -285,11 +277,10 @@ struct tcp_sock {
 				 * receiver in Recovery. */
 	u32	prr_out;	/* Total number of pkts sent during Recovery. */
 	u32	delivered;	/* Total data packets delivered incl. rexmits */
-	u32	delivered_ce;	/* Like the above but only ECE marked packets */
 	u32	lost;		/* Total data packets lost incl. rexmits */
 	u32	app_limited;	/* limited until "delivered" reaches this val */
-	u64	first_tx_mstamp;  /* start of window send phase */
-	u64	delivered_mstamp; /* time we reached "delivered" */
+	struct skb_mstamp first_tx_mstamp;  /* start of window send phase */
+	struct skb_mstamp delivered_mstamp; /* time we reached "delivered" */
 	u32	rate_delivered;    /* saved rate sample: packets delivered */
 	u32	rate_interval_us;  /* saved rate sample: time elapsed */
 
@@ -300,8 +291,6 @@ struct tcp_sock {
 	u32	lost_out;	/* Lost packets			*/
 	u32	sacked_out;	/* SACK'd packets			*/
 	u32	fackets_out;	/* FACK'd packets			*/
-
-	struct hrtimer	pacing_timer;
 
 	/* from STCP, retrans queue hinting */
 	struct sk_buff* lost_skb_hint;
@@ -324,6 +313,7 @@ struct tcp_sock {
 					 */
 
 	int     lost_cnt_hint;
+	u32     retransmit_high;	/* L-bits may be on up to this seqno */
 
 	u32	prior_ssthresh; /* ssthresh saved at recovery start	*/
 	u32	high_seq;	/* snd_nxt at onset of congestion	*/
@@ -341,29 +331,18 @@ struct tcp_sock {
 
 	int			linger2;
 
-
-/* Sock_ops bpf program related variables */
-#ifdef CONFIG_BPF
-	u8	bpf_sock_ops_cb_flags;  /* Control calling BPF programs
-					 * values defined in uapi/linux/tcp.h
-					 */
-#define BPF_SOCK_OPS_TEST_FLAG(TP, ARG) (TP->bpf_sock_ops_cb_flags & ARG)
-#else
-#define BPF_SOCK_OPS_TEST_FLAG(TP, ARG) 0
-#endif
-
 /* Receiver side RTT estimation */
 	struct {
-		u32	rtt_us;
+		u32	rtt;
 		u32	seq;
-		u64	time;
+		u32	time;
 	} rcv_rtt_est;
 
 /* Receiver queue space */
 	struct {
-		int	space;
+		u32	space;
 		u32	seq;
-		u64	time;
+		u32	time;
 	} rcvq_space;
 
 /* TCP-specific MTU probe information. */
@@ -371,7 +350,6 @@ struct tcp_sock {
 		u32		  probe_seq_start;
 		u32		  probe_seq_end;
 	} mtu_probe;
-	u32     plb_rehash;     /* PLB-triggered rehash attempts */
 	u32	mtu_info; /* We received an ICMP_FRAG_NEEDED / ICMPV6_PKT_TOOBIG
 			   * while socket was owned by user.
 			   */
@@ -391,11 +369,9 @@ struct tcp_sock {
 	 */
 	struct request_sock *fastopen_rsk;
 	u32	*saved_syn;
-	/* Rerouting information */
-	u16	ecn_rehash;	/* PLB triggered rehash attempts */
 };
 
-enum tsq_enum {
+enum tsq_flags {
 	TSQ_THROTTLED,
 	TSQ_QUEUED,
 	TCP_TSQ_DEFERRED,	   /* tcp_tasklet_func() found socket was owned */
@@ -404,15 +380,6 @@ enum tsq_enum {
 	TCP_MTU_REDUCED_DEFERRED,  /* tcp_v{4|6}_err() could not call
 				    * tcp_v{4|6}_mtu_reduced()
 				    */
-};
-
-enum tsq_flags {
-	TSQF_THROTTLED			= (1UL << TSQ_THROTTLED),
-	TSQF_QUEUED			= (1UL << TSQ_QUEUED),
-	TCPF_TSQ_DEFERRED		= (1UL << TCP_TSQ_DEFERRED),
-	TCPF_WRITE_TIMER_DEFERRED	= (1UL << TCP_WRITE_TIMER_DEFERRED),
-	TCPF_DELACK_TIMER_DEFERRED	= (1UL << TCP_DELACK_TIMER_DEFERRED),
-	TCPF_MTU_REDUCED_DEFERRED	= (1UL << TCP_MTU_REDUCED_DEFERRED),
 };
 
 static inline struct tcp_sock *tcp_sk(const struct sock *sk)
@@ -471,7 +438,5 @@ static inline void tcp_saved_syn_free(struct tcp_sock *tp)
 
 int tcp_skb_shift(struct sk_buff *to, struct sk_buff *from, int pcount,
 		  int shiftlen);
-
-struct sk_buff *tcp_get_timestamping_opt_stats(const struct sock *sk);
 
 #endif	/* _LINUX_TCP_H */

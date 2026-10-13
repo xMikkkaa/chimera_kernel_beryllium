@@ -599,6 +599,7 @@ static void ipa_release_uc_smmu_mappings(enum ipa_client_type client)
 				ipa3_ctx->wdi_map_cnt--;
 			}
 			kfree(wdi_res[i].res);
+			wdi_res[i].res = NULL;
 			wdi_res[i].valid = false;
 		}
 	}
@@ -1458,7 +1459,7 @@ int ipa3_disable_wdi_pipe(u32 clnt_hdl)
 			}
 		}
 		usleep_range(IPA_UC_POLL_SLEEP_USEC * IPA_UC_POLL_SLEEP_USEC,
-			IPA_UC_POLL_SLEEP_USEC * IPA_UC_POLL_SLEEP_USEC);
+			IPA_UC_POLL_SLEEP_USEC * IPA_UC_POLL_SLEEP_USEC * 1.2);
 
 	}
 

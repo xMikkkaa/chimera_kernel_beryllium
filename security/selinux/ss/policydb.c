@@ -3378,10 +3378,6 @@ int policydb_write(struct policydb *p, void *fp)
 		config |= REJECT_UNKNOWN;
 	if (p->allow_unknown)
 		config |= ALLOW_UNKNOWN;
-	if (p->android_netlink_route)
-		config |= POLICYDB_CONFIG_ANDROID_NETLINK_ROUTE;
-	if (p->android_netlink_getneigh)
-		config |= POLICYDB_CONFIG_ANDROID_NETLINK_GETNEIGH;
 
 	/* Write the magic number and string identifiers. */
 	buf[0] = cpu_to_le32(POLICYDB_MAGIC);

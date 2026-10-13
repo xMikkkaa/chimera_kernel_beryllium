@@ -312,7 +312,7 @@ config ARM_ARCH_TIMER_VCT_ACCESS
 	help
 	  This option enables support for reading the ARM architected timer's
 	  virtual counter in userspace.
-	  
+
 config ARM_ARCH_TIMER_OOL_WORKAROUND
 	bool
 

@@ -105,7 +105,7 @@ static int sdcardfs_create(struct inode *dir, struct dentry *dentry,
 	if (err)
 		goto out;
 
-	err = sdcardfs_interpose(dentry, dir->i_sb, &lower_path,
+	err = sdcardfs_interpose(dir, dentry, dir->i_sb, &lower_path,
 			SDCARDFS_I(dir)->data->userid);
 	if (err)
 		goto out;
@@ -287,7 +287,8 @@ static int sdcardfs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 			make_nomedia_in_obb = 1;
 	}
 
-	err = sdcardfs_interpose(dentry, dir->i_sb, &lower_path, pd->userid);
+	err = sdcardfs_interpose(dir, dentry, dir->i_sb,
+				&lower_path, pd->userid);
 	if (err) {
 		unlock_dir(lower_parent_dentry);
 		goto out;
@@ -455,7 +456,9 @@ static int sdcardfs_rename(struct inode *old_dir, struct dentry *old_dentry,
 		sdcardfs_copy_and_fix_attrs(old_dir, d_inode(lower_old_dir_dentry));
 		fsstack_copy_inode_size(old_dir, d_inode(lower_old_dir_dentry));
 	}
-	get_derived_permission_new(new_dentry->d_parent, old_dentry, &new_dentry->d_name);
+	get_derived_permission_new(d_inode(new_dentry->d_parent),
+					d_inode(old_dentry),
+					&new_dentry->d_name);
 	fixup_tmp_permissions(d_inode(old_dentry));
 	fixup_lower_ownership(old_dentry, new_dentry->d_name.name);
 	d_invalidate(old_dentry); /* Can't fixup ownership recursively :( */
@@ -556,12 +559,10 @@ static int sdcardfs_permission(struct vfsmount *mnt, struct inode *inode, int ma
 {
 	int err;
 	struct inode tmp;
-	struct sdcardfs_inode_data *top = top_data_get(SDCARDFS_I(inode));
+	struct sdcardfs_inode_data *top;
 
 	if (IS_ERR(mnt))
 		return PTR_ERR(mnt);
-	if (!top)
-		return -EINVAL;
 
 	/*
 	 * Permission check on sdcardfs inode.
@@ -575,11 +576,21 @@ static int sdcardfs_permission(struct vfsmount *mnt, struct inode *inode, int ma
 	 * locks must be dealt with to avoid undefined behavior.
 	 */
 	copy_attrs(&tmp, inode);
+
+	spin_lock(&SDCARDFS_I(inode)->top_alias_lock);
+	top = top_data_get(SDCARDFS_I(inode));
+	if (!top) {
+		spin_unlock(&SDCARDFS_I(inode)->top_alias_lock);
+		return -EINVAL;
+	}
+
 	tmp.i_uid = make_kuid(&init_user_ns, top->d_uid);
 	tmp.i_gid = make_kgid(&init_user_ns, get_gid(mnt, inode->i_sb, top));
 	tmp.i_mode = (inode->i_mode & S_IFMT)
 			| get_mode(mnt, SDCARDFS_I(inode), top);
 	data_put(top);
+	spin_unlock(&SDCARDFS_I(inode)->top_alias_lock);
+
 	tmp.i_sb = inode->i_sb;
 	if (IS_POSIXACL(inode))
 		pr_warn("%s: This may be undefined behavior...\n", __func__);
@@ -756,9 +767,10 @@ static int sdcardfs_fillattr(struct vfsmount *mnt, struct inode *inode,
 	return 0;
 }
 
-static int sdcardfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
-		 struct kstat *stat)
+static int sdcardfs_getattr(const struct path *path, struct kstat *stat,
+		       u32 request_mask, unsigned int flags)
 {
+	struct dentry *dentry = path->dentry;
 	struct kstat lower_stat;
 	struct path lower_path;
 	struct dentry *parent;
@@ -772,12 +784,12 @@ static int sdcardfs_getattr(struct vfsmount *mnt, struct dentry *dentry,
 	dput(parent);
 
 	sdcardfs_get_lower_path(dentry, &lower_path);
-	err = vfs_getattr(&lower_path, &lower_stat);
+	err = vfs_getattr(&lower_path, &lower_stat, request_mask, flags);
 	if (err)
 		goto out;
 	sdcardfs_copy_and_fix_attrs(d_inode(dentry),
 			      d_inode(lower_path.dentry));
-	err = sdcardfs_fillattr(mnt, d_inode(dentry), &lower_stat, stat);
+	err = sdcardfs_fillattr(path->mnt, d_inode(dentry), &lower_stat, stat);
 out:
 	sdcardfs_put_lower_path(dentry, &lower_path);
 	return err;

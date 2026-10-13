@@ -992,7 +992,7 @@ void bpf_jit_compile(struct bpf_prog *fp)
 	unsigned alloc_size;
 	u8 *target_ptr;
 
-	if (!fp->jit_requested)
+	if (!bpf_jit_enable)
 		return;
 
 	memset(&ctx, 0, sizeof(ctx));

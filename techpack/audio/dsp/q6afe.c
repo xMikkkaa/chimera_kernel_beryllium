@@ -1,5 +1,4 @@
 /* Copyright (c) 2012-2019, 2021, The Linux Foundation. All rights reserved.
- * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -21,7 +20,6 @@
 #include <linux/delay.h>
 #include <dsp/msm_audio_ion.h>
 #include <dsp/apr_audio-v2.h>
-#include <dsp/apr_elliptic.h>
 #include <dsp/audio_cal_utils.h>
 #include <dsp/q6afe-v2.h>
 #include <dsp/q6audio-v2.h>
@@ -200,6 +198,11 @@ static void av_dev_drift_afe_cb_handler(uint32_t *payload,
 	struct afe_av_dev_drift_get_param_resp *resp =
 		(struct afe_av_dev_drift_get_param_resp *) payload;
 
+	if (!(&(resp->pdata))) {
+		pr_err("%s: Error: resp pdata is NULL\n", __func__);
+		return;
+	}
+
 	param_id = resp->pdata.param_id;
 	if (param_id == AFE_PARAM_ID_DEV_TIMING_STATS) {
 		if (payload_size < sizeof(this_afe.av_dev_drift_resp)) {
@@ -225,6 +228,11 @@ static int32_t sp_make_afe_callback(uint32_t *payload, uint32_t payload_size)
 	u32 param_id;
 	struct afe_spkr_prot_calib_get_resp *resp =
 		(struct afe_spkr_prot_calib_get_resp *) payload;
+
+	if (!(&(resp->pdata))) {
+		pr_err("%s: Error: resp pdata is NULL\n", __func__);
+		return -EINVAL;
+	}
 
 	param_id = resp->pdata.param_id;
 	if (param_id == AFE_PARAM_ID_CALIB_RES_CFG_V2) {
@@ -375,12 +383,6 @@ static int32_t afe_callback(struct apr_client_data *data, void *priv)
 			wake_up(&this_afe.wait[data->token]);
 		else
 			return -EINVAL;
-	} else if (data->opcode == ULTRASOUND_OPCODE) {
-		if (data->payload != NULL)
-			elliptic_process_apr_payload(data->payload);
-		else
-			pr_err("[ELUS]: payload is invalid");
-
 	} else if (data->payload_size) {
 		uint32_t *payload;
 		uint16_t port_id = 0;
@@ -1124,15 +1126,6 @@ fail_cmd:
 	__func__, config.pdata.param_id, ret, src_port);
 	return ret;
 }
-
-afe_ultrasound_state_t elus_afe = {
-       .ptr_apr = &this_afe.apr,
-       .ptr_status = &this_afe.status,
-       .ptr_state = &this_afe.state,
-       .ptr_wait = this_afe.wait,
-       .timeout_ms = TIMEOUT_MS,
-};
-EXPORT_SYMBOL(elus_afe);
 
 static void afe_send_cal_spkr_prot_tx(int port_id)
 {
@@ -5749,7 +5742,6 @@ int afe_validate_port(u16 port_id)
 	case SLIMBUS_2_RX:
 	case SLIMBUS_2_TX:
 	case SLIMBUS_3_RX:
-	case SLIMBUS_3_TX:
 	case INT_BT_SCO_RX:
 	case INT_BT_SCO_TX:
 	case INT_BT_A2DP_RX:

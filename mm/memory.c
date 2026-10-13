@@ -64,9 +64,6 @@
 #include <linux/debugfs.h>
 #include <linux/userfaultfd_k.h>
 #include <linux/dax.h>
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-#include <linux/susfs_def.h>
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
 #include <asm/io.h>
 #include <asm/mmu_context.h>
@@ -1820,7 +1817,7 @@ static inline int remap_pud_range(struct mm_struct *mm, pgd_t *pgd,
 /**
  * remap_pfn_range - remap kernel memory to userspace
  * @vma: user vma to map to
- * @addr: target page aligned user address to start at
+ * @addr: target user address to start at
  * @pfn: physical address of kernel memory
  * @size: size of map area
  * @prot: page protection flags for this mapping
@@ -1836,9 +1833,6 @@ int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
 	struct mm_struct *mm = vma->vm_mm;
 	unsigned long remap_pfn = pfn;
 	int err;
-
-	if (WARN_ON_ONCE(!PAGE_ALIGNED(addr)))
-		return -EINVAL;
 
 	/*
 	 * Physically remapped pages are special. Tell the
@@ -2271,6 +2265,10 @@ static int do_page_mkwrite(struct vm_area_struct *vma, struct page *page,
 	vmf.gfp_mask = __get_fault_gfp_mask(vma);
 	vmf.page = page;
 	vmf.cow_page = NULL;
+
+	if (vma->vm_file &&
+	    IS_SWAPFILE(vma->vm_file->f_mapping->host))
+		return VM_FAULT_SIGBUS;
 
 	ret = vma->vm_ops->page_mkwrite(vma, &vmf);
 	if (unlikely(ret & (VM_FAULT_ERROR | VM_FAULT_NOPAGE)))
@@ -2716,8 +2714,8 @@ void unmap_mapping_range(struct address_space *mapping,
 		loff_t const holebegin, loff_t const holelen, int even_cows)
 {
 	struct zap_details details = { };
-	pgoff_t hba = (pgoff_t)(holebegin) >> PAGE_SHIFT;
-	pgoff_t hlen = ((pgoff_t)(holelen) + PAGE_SIZE - 1) >> PAGE_SHIFT;
+	pgoff_t hba = holebegin >> PAGE_SHIFT;
+	pgoff_t hlen = (holelen + PAGE_SIZE - 1) >> PAGE_SHIFT;
 
 	/* Check for overflow. */
 	if (sizeof(holelen) > sizeof(hlen)) {
@@ -4417,10 +4415,6 @@ int follow_phys(struct vm_area_struct *vma,
 		goto out;
 	pte = *ptep;
 
-	/* Never return PFNs of anon folios in COW mappings. */
-	if (vm_normal_page(vma, address, pte))
-		goto unlock;
-
 	if ((flags & FOLL_WRITE) && !pte_write(pte))
 		goto unlock;
 
@@ -4467,7 +4461,7 @@ EXPORT_SYMBOL_GPL(generic_access_phys);
 int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 		unsigned long addr, void *buf, int len, unsigned int gup_flags)
 {
-	struct vm_area_struct *vma = NULL;
+	struct vm_area_struct *vma;
 	void *old_buf = buf;
 	int write = gup_flags & FOLL_WRITE;
 
@@ -4477,11 +4471,6 @@ int __access_remote_vm(struct task_struct *tsk, struct mm_struct *mm,
 		int bytes, ret, offset;
 		void *maddr;
 		struct page *page = NULL;
-
-#ifdef CONFIG_KSU_SUSFS_SUS_MAP
-		if (vma && vma->vm_file && SUSFS_IS_INODE_SUS_MAP(file_inode(vma->vm_file)))
-			break;
-#endif // #ifdef CONFIG_KSU_SUSFS_SUS_MAP
 
 		ret = get_user_pages_remote(tsk, mm, addr, 1,
 				gup_flags, &page, &vma);

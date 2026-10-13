@@ -33,14 +33,9 @@
 #ifdef CONFIG_SMP
 #include <linux/sched.h>
 #endif
-#include <linux/sched/sysctl.h>
 #include <trace/events/power.h>
-#include <linux/moduleparam.h>
 
 static LIST_HEAD(cpufreq_policy_list);
-
-static int userspace_boost_enable = 0;
-module_param(userspace_boost_enable, int, 0644);
 
 static inline bool policy_is_inactive(struct cpufreq_policy *policy)
 {
@@ -748,39 +743,10 @@ static ssize_t show_##file_name				\
 }
 
 show_one(cpuinfo_min_freq, cpuinfo.min_freq);
+show_one(cpuinfo_max_freq, cpuinfo.max_freq);
 show_one(cpuinfo_transition_latency, cpuinfo.transition_latency);
 show_one(scaling_min_freq, min);
 show_one(scaling_max_freq, max);
-
-unsigned int cpuinfo_max_freq_cached;
-
-static bool should_use_cached_freq(int cpu)
-{
-	/* This is a safe check. may not be needed */
-	if (!cpuinfo_max_freq_cached)
-		return false;
-
-	/*
-	 * perfd already configure sched_lib_mask_force to
-	 * 0xf0 from user space. so re-using it.
-	 */
-	if (!(BIT(cpu) & sched_lib_mask_force))
-		return false;
-
-	return is_sched_lib_based_app(current->pid);
-}
-
-static ssize_t show_cpuinfo_max_freq(struct cpufreq_policy *policy, char *buf)
-{
-	unsigned int freq = policy->cpuinfo.max_freq;
-
-	if (should_use_cached_freq(policy->cpu))
-		freq = cpuinfo_max_freq_cached << 1;
-	else
-		freq = policy->cpuinfo.max_freq;
-
-	return scnprintf(buf, PAGE_SIZE, "%u\n", freq);
-}
 
 static ssize_t show_scaling_cur_freq(struct cpufreq_policy *policy, char *buf)
 {
@@ -805,10 +771,6 @@ static ssize_t store_##file_name					\
 {									\
 	int ret, temp;							\
 	struct cpufreq_policy new_policy;				\
-									\
-	if(!userspace_boost_enable)				\
-		if (&policy->object == &policy->min)				\
-			return count;						\
 									\
 	memcpy(&new_policy, policy, sizeof(*policy));			\
 	new_policy.min = policy->user_policy.min;			\
@@ -2345,9 +2307,7 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 				struct cpufreq_policy *new_policy)
 {
 	struct cpufreq_governor *old_gov;
-	struct task_struct *p;
 	int ret;
-	bool available = false;
 
 	pr_debug("setting new policy for CPU %u: %u - %u kHz\n",
 		 new_policy->cpu, new_policy->min, new_policy->max);
@@ -2358,20 +2318,8 @@ static int cpufreq_set_policy(struct cpufreq_policy *policy,
 	* This check works well when we store new min/max freq attributes,
 	* because new_policy is a copy of policy with one field updated.
 	*/
-	if (new_policy->min > new_policy->max) {
-		read_lock(&tasklist_lock);
-		for_each_process(p) {
-			/* Check if libperfmgr exists */
-			if (strstr(p->comm, "libperfmgr")) {
-				available = true;
-				new_policy->min = new_policy->max;
-			}
-		}
-		read_unlock(&tasklist_lock);
-
-		if (!available)
-			return -EINVAL;
-	}
+	if (new_policy->min > new_policy->max)
+		return -EINVAL;
 
 	/* verify the cpu speed can be set within this limit */
 	ret = cpufreq_driver->verify(new_policy);

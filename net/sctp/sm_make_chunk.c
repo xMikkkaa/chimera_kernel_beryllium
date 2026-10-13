@@ -3336,7 +3336,8 @@ static void sctp_asconf_param_success(struct sctp_association *asoc,
 		local_bh_enable();
 		list_for_each_entry(transport, &asoc->peer.transport_addr_list,
 				transports) {
-			sctp_transport_dst_release(transport);
+			dst_release(transport->dst);
+			transport->dst = NULL;
 		}
 		break;
 	case SCTP_PARAM_DEL_IP:
@@ -3350,7 +3351,8 @@ static void sctp_asconf_param_success(struct sctp_association *asoc,
 		local_bh_enable();
 		list_for_each_entry(transport, &asoc->peer.transport_addr_list,
 				transports) {
-			sctp_transport_dst_release(transport);
+			dst_release(transport->dst);
+			transport->dst = NULL;
 		}
 		break;
 	default:

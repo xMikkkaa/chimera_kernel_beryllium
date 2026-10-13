@@ -125,11 +125,13 @@ static void hci_conn_cleanup(struct hci_conn *conn)
 	if (hdev->notify)
 		hdev->notify(hdev, HCI_NOTIFY_CONN_DEL);
 
-	debugfs_remove_recursive(conn->debugfs);
-
 	hci_conn_del_sysfs(conn);
 
+	debugfs_remove_recursive(conn->debugfs);
+
 	hci_dev_put(hdev);
+
+	hci_conn_put(conn);
 }
 
 static void le_scan_cleanup(struct work_struct *work)
@@ -1052,8 +1054,10 @@ struct hci_conn *hci_connect_le_scan(struct hci_dev *hdev, bdaddr_t *dst,
 	if (!conn)
 		return ERR_PTR(-ENOMEM);
 
-	if (hci_explicit_conn_params_set(hdev, dst, dst_type) < 0)
+	if (hci_explicit_conn_params_set(hdev, dst, dst_type) < 0) {
+		hci_conn_del(conn);
 		return ERR_PTR(-EBUSY);
+	}
 
 	conn->state = BT_CONNECT;
 	set_bit(HCI_CONN_SCANNING, &conn->flags);

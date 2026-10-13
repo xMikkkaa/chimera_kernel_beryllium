@@ -222,16 +222,16 @@ struct sock *__inet_lookup_listener(struct net *net,
 				    const __be32 saddr, const __be16 sport,
 				    const __be32 daddr,
 				    const unsigned short hnum,
-				    const int dif, const int sdif);
+				    const int dif);
 
 static inline struct sock *inet_lookup_listener(struct net *net,
 		struct inet_hashinfo *hashinfo,
 		struct sk_buff *skb, int doff,
 		__be32 saddr, __be16 sport,
-		__be32 daddr, __be16 dport, int dif, int sdif)
+		__be32 daddr, __be16 dport, int dif)
 {
 	return __inet_lookup_listener(net, hashinfo, skb, doff, saddr, sport,
-				      daddr, ntohs(dport), dif, sdif);
+				      daddr, ntohs(dport), dif);
 }
 
 /* Socket demux engine toys. */
@@ -263,24 +263,22 @@ static inline struct sock *inet_lookup_listener(struct net *net,
 				   (((__force __u64)(__be32)(__daddr)) << 32) | \
 				   ((__force __u64)(__be32)(__saddr)))
 #endif /* __BIG_ENDIAN */
-#define INET_MATCH(__sk, __net, __cookie, __saddr, __daddr, __ports, __dif, __sdif) \
+#define INET_MATCH(__sk, __net, __cookie, __saddr, __daddr, __ports, __dif)	\
 	(((__sk)->sk_portpair == (__ports))			&&	\
 	 ((__sk)->sk_addrpair == (__cookie))			&&	\
 	 (!(__sk)->sk_bound_dev_if	||				\
-	   ((__sk)->sk_bound_dev_if == (__dif))			||	\
-	   ((__sk)->sk_bound_dev_if == (__sdif)))		&&	\
+	   ((__sk)->sk_bound_dev_if == (__dif))) 		&& 	\
 	 net_eq(sock_net(__sk), (__net)))
 #else /* 32-bit arch */
 #define INET_ADDR_COOKIE(__name, __saddr, __daddr) \
 	const int __name __deprecated __attribute__((unused))
 
-#define INET_MATCH(__sk, __net, __cookie, __saddr, __daddr, __ports, __dif, __sdif) \
+#define INET_MATCH(__sk, __net, __cookie, __saddr, __daddr, __ports, __dif) \
 	(((__sk)->sk_portpair == (__ports))		&&		\
 	 ((__sk)->sk_daddr	== (__saddr))		&&		\
 	 ((__sk)->sk_rcv_saddr	== (__daddr))		&&		\
 	 (!(__sk)->sk_bound_dev_if	||				\
-	   ((__sk)->sk_bound_dev_if == (__dif))		||		\
-	   ((__sk)->sk_bound_dev_if == (__sdif)))	&&		\
+	   ((__sk)->sk_bound_dev_if == (__dif))) 	&&		\
 	 net_eq(sock_net(__sk), (__net)))
 #endif /* 64-bit arch */
 
@@ -291,7 +289,7 @@ struct sock *__inet_lookup_established(struct net *net,
 				       struct inet_hashinfo *hashinfo,
 				       const __be32 saddr, const __be16 sport,
 				       const __be32 daddr, const u16 hnum,
-				       const int dif, const int sdif);
+				       const int dif);
 
 static inline struct sock *
 	inet_lookup_established(struct net *net, struct inet_hashinfo *hashinfo,
@@ -300,7 +298,7 @@ static inline struct sock *
 				const int dif)
 {
 	return __inet_lookup_established(net, hashinfo, saddr, sport, daddr,
-					 ntohs(dport), dif, 0);
+					 ntohs(dport), dif);
 }
 
 static inline struct sock *__inet_lookup(struct net *net,
@@ -308,20 +306,20 @@ static inline struct sock *__inet_lookup(struct net *net,
 					 struct sk_buff *skb, int doff,
 					 const __be32 saddr, const __be16 sport,
 					 const __be32 daddr, const __be16 dport,
-					 const int dif, const int sdif,
+					 const int dif,
 					 bool *refcounted)
 {
 	u16 hnum = ntohs(dport);
 	struct sock *sk;
 
 	sk = __inet_lookup_established(net, hashinfo, saddr, sport,
-				       daddr, hnum, dif, sdif);
+				       daddr, hnum, dif);
 	*refcounted = true;
 	if (sk)
 		return sk;
 	*refcounted = false;
 	return __inet_lookup_listener(net, hashinfo, skb, doff, saddr,
-				      sport, daddr, hnum, dif, sdif);
+				      sport, daddr, hnum, dif);
 }
 
 static inline struct sock *inet_lookup(struct net *net,
@@ -335,7 +333,7 @@ static inline struct sock *inet_lookup(struct net *net,
 	bool refcounted;
 
 	sk = __inet_lookup(net, hashinfo, skb, doff, saddr, sport, daddr,
-			   dport, dif, 0, &refcounted);
+			   dport, dif, &refcounted);
 
 	if (sk && !refcounted && !atomic_inc_not_zero(&sk->sk_refcnt))
 		sk = NULL;
@@ -347,7 +345,6 @@ static inline struct sock *__inet_lookup_skb(struct inet_hashinfo *hashinfo,
 					     int doff,
 					     const __be16 sport,
 					     const __be16 dport,
-					     const int sdif,
 					     bool *refcounted)
 {
 	struct sock *sk = skb_steal_sock(skb);
@@ -359,7 +356,7 @@ static inline struct sock *__inet_lookup_skb(struct inet_hashinfo *hashinfo,
 
 	return __inet_lookup(dev_net(skb_dst(skb)->dev), hashinfo, skb,
 			     doff, iph->saddr, sport,
-			     iph->daddr, dport, inet_iif(skb), sdif,
+			     iph->daddr, dport, inet_iif(skb),
 			     refcounted);
 }
 
@@ -385,7 +382,7 @@ static inline void sk_rcv_saddr_set(struct sock *sk, __be32 addr)
 }
 
 int __inet_hash_connect(struct inet_timewait_death_row *death_row,
-			struct sock *sk, u32 port_offset,
+			struct sock *sk, u64 port_offset,
 			int (*check_established)(struct inet_timewait_death_row *,
 						 struct sock *, __u16,
 						 struct inet_timewait_sock **));

@@ -146,7 +146,6 @@ enum {
 #define TCPI_OPT_ECN		8 /* ECN was negociated at TCP session init */
 #define TCPI_OPT_ECN_SEEN	16 /* we received at least one packet with ECT */
 #define TCPI_OPT_SYN_DATA	32 /* SYN-ACK acked data in SYN sent or rcvd */
-#define TCPI_OPT_ECN_LOW	64 /* Low-latency ECN configured at init */
 
 enum tcp_ca_state {
 	TCP_CA_Open = 0,
@@ -216,20 +215,6 @@ struct tcp_info {
 	__u32	tcpi_data_segs_out;	/* RFC4898 tcpEStatsDataSegsOut */
 
 	__u64   tcpi_delivery_rate;
-
-	__u64	tcpi_busy_time;      /* Time (usec) busy sending data */
-	__u64	tcpi_rwnd_limited;   /* Time (usec) limited by receive window */
-	__u64	tcpi_sndbuf_limited; /* Time (usec) limited by send buffer */
-};
-
-/* netlink attributes types for SCM_TIMESTAMPING_OPT_STATS */
-enum {
-	TCP_NLA_PAD,
-	TCP_NLA_BUSY,		/* Time (usec) busy sending data */
-	TCP_NLA_RWND_LIMITED,	/* Time (usec) limited by receive window */
-	TCP_NLA_SNDBUF_LIMITED,	/* Time (usec) limited by send buffer */
-	TCP_NLA_DATA_SEGS_OUT,	/* Data pkts sent including retransmission */
-	TCP_NLA_TOTAL_RETRANS,	/* Data pkts retransmitted */
 };
 
 /* for TCP_MD5SIG socket option */

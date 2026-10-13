@@ -240,8 +240,6 @@ struct scatterlist;
 struct pipe_inode_info;
 struct iov_iter;
 struct napi_struct;
-struct bpf_prog;
-union bpf_attr;
 
 #if defined(CONFIG_NF_CONNTRACK) || defined(CONFIG_NF_CONNTRACK_MODULE)
 struct nf_conntrack {
@@ -414,8 +412,7 @@ struct ubuf_info {
  * the end of the header data, ie. at skb->end.
  */
 struct skb_shared_info {
-	__u8		meta_len;
-	__u8		nr_frags;
+	unsigned char	nr_frags;
 	__u8		tx_flags;
 	unsigned short	gso_size;
 	/* Warning: this field is not always filled in (UFO)! */
@@ -505,6 +502,66 @@ typedef unsigned int sk_buff_data_t;
 typedef unsigned char *sk_buff_data_t;
 #endif
 
+/**
+ * struct skb_mstamp - multi resolution time stamps
+ * @stamp_us: timestamp in us resolution
+ * @stamp_jiffies: timestamp in jiffies
+ */
+struct skb_mstamp {
+	union {
+		u64		v64;
+		struct {
+			u32	stamp_us;
+			u32	stamp_jiffies;
+		};
+	};
+};
+
+/**
+ * skb_mstamp_get - get current timestamp
+ * @cl: place to store timestamps
+ */
+static inline void skb_mstamp_get(struct skb_mstamp *cl)
+{
+	u64 val = local_clock();
+
+	do_div(val, NSEC_PER_USEC);
+	cl->stamp_us = (u32)val;
+	cl->stamp_jiffies = (u32)jiffies;
+}
+
+/**
+ * skb_mstamp_delta - compute the difference in usec between two skb_mstamp
+ * @t1: pointer to newest sample
+ * @t0: pointer to oldest sample
+ */
+static inline u32 skb_mstamp_us_delta(const struct skb_mstamp *t1,
+				      const struct skb_mstamp *t0)
+{
+	s32 delta_us = t1->stamp_us - t0->stamp_us;
+	u32 delta_jiffies = t1->stamp_jiffies - t0->stamp_jiffies;
+
+	/* If delta_us is negative, this might be because interval is too big,
+	 * or local_clock() drift is too big : fallback using jiffies.
+	 */
+	if (delta_us <= 0 ||
+	    delta_jiffies >= (INT_MAX / (USEC_PER_SEC / HZ)))
+
+		delta_us = jiffies_to_usecs(delta_jiffies);
+
+	return delta_us;
+}
+
+static inline bool skb_mstamp_after(const struct skb_mstamp *t1,
+				    const struct skb_mstamp *t0)
+{
+	s32 diff = t1->stamp_jiffies - t0->stamp_jiffies;
+
+	if (!diff)
+		diff = t1->stamp_us - t0->stamp_us;
+	return diff > 0;
+}
+
 /** 
  *	struct sk_buff - socket buffer
  *	@next: Next buffer in list
@@ -554,7 +611,6 @@ typedef unsigned char *sk_buff_data_t;
  *	@wifi_acked_valid: wifi_acked was set
  *	@wifi_acked: whether frame was acked on wifi or not
  *	@no_fcs:  Request NIC to treat last 4 bytes as Ethernet FCS
- *	@dst_pending_confirm: need to confirm neighbour
   *	@napi_id: id of the NAPI struct this skb came from
  *	@secmark: security marking
  *	@mark: Generic packet mark
@@ -584,7 +640,7 @@ struct sk_buff {
 
 			union {
 				ktime_t		tstamp;
-				u64		skb_mstamp;
+				struct skb_mstamp skb_mstamp;
 			};
 		};
 		struct rb_node		rbnode; /* used in netem, ip4 defrag, and tcp stack */
@@ -681,8 +737,6 @@ struct sk_buff {
 	__u8			csum_complete_sw:1;
 	__u8			csum_level:2;
 	__u8			csum_bad:1;
-
-	__u8			dst_pending_confirm:1;
 #ifdef CONFIG_IPV6_NDISC_NODETYPE
 	__u8			ndisc_nodetype:2;
 #endif
@@ -1059,11 +1113,6 @@ static inline __be32 skb_flow_get_ports(const struct sk_buff *skb,
 void skb_flow_dissector_init(struct flow_dissector *flow_dissector,
 			     const struct flow_dissector_key *key,
 			     unsigned int key_count);
-
-int skb_flow_dissector_bpf_prog_attach(const union bpf_attr *attr,
- 				       struct bpf_prog *prog);
-
-int skb_flow_dissector_bpf_prog_detach(const union bpf_attr *attr);
 
 bool __skb_flow_dissect(const struct sk_buff *skb,
 			struct flow_dissector *flow_dissector,
@@ -2148,11 +2197,6 @@ static inline unsigned char *skb_mac_header(const struct sk_buff *skb)
 	return skb->head + skb->mac_header;
 }
 
-static inline u32 skb_mac_header_len(const struct sk_buff *skb)
-{
-	return skb->network_header - skb->mac_header;
-}
-
 static inline int skb_mac_header_was_set(const struct sk_buff *skb)
 {
 	return skb->mac_header != (typeof(skb->mac_header))~0U;
@@ -3072,9 +3116,6 @@ __wsum skb_copy_and_csum_bits(const struct sk_buff *skb, int offset, u8 *to,
 int skb_splice_bits(struct sk_buff *skb, struct sock *sk, unsigned int offset,
 		    struct pipe_inode_info *pipe, unsigned int len,
 		    unsigned int flags);
-int skb_send_sock_locked(struct sock *sk, struct sk_buff *skb, int offset,
-			 int len);
-int skb_send_sock(struct sock *sk, struct sk_buff *skb, int offset, int len);
 void skb_copy_and_csum_dev(const struct sk_buff *skb, u8 *to);
 unsigned int skb_zerocopy_headlen(const struct sk_buff *from);
 int skb_zerocopy(struct sk_buff *to, struct sk_buff *from,
@@ -3223,69 +3264,6 @@ static inline ktime_t net_timedelta(ktime_t t)
 static inline ktime_t net_invalid_timestamp(void)
 {
 	return ktime_set(0, 0);
-}
-
-static inline u8 skb_metadata_len(const struct sk_buff *skb)
-{
-	return skb_shinfo(skb)->meta_len;
-}
-
-static inline void *skb_metadata_end(const struct sk_buff *skb)
-{
-	return skb_mac_header(skb);
-}
-
-static inline bool __skb_metadata_differs(const struct sk_buff *skb_a,
-					  const struct sk_buff *skb_b,
-					  u8 meta_len)
-{
-	const void *a = skb_metadata_end(skb_a);
-	const void *b = skb_metadata_end(skb_b);
-	/* Using more efficient varaiant than plain call to memcmp(). */
-#if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS) && BITS_PER_LONG == 64
-	u64 diffs = 0;
-
-	switch (meta_len) {
-#define __it(x, op) (x -= sizeof(u##op))
-#define __it_diff(a, b, op) (*(u##op *)__it(a, op)) ^ (*(u##op *)__it(b, op))
-	case 32: diffs |= __it_diff(a, b, 64);
-	case 24: diffs |= __it_diff(a, b, 64);
-	case 16: diffs |= __it_diff(a, b, 64);
-	case  8: diffs |= __it_diff(a, b, 64);
-		break;
-	case 28: diffs |= __it_diff(a, b, 64);
-	case 20: diffs |= __it_diff(a, b, 64);
-	case 12: diffs |= __it_diff(a, b, 64);
-	case  4: diffs |= __it_diff(a, b, 32);
-		break;
-	}
-	return diffs;
-#else
-	return memcmp(a - meta_len, b - meta_len, meta_len);
-#endif
-}
-
-static inline bool skb_metadata_differs(const struct sk_buff *skb_a,
-					const struct sk_buff *skb_b)
-{
-	u8 len_a = skb_metadata_len(skb_a);
-	u8 len_b = skb_metadata_len(skb_b);
-
-	if (!(len_a | len_b))
-		return false;
-
-	return len_a != len_b ?
-	       true : __skb_metadata_differs(skb_a, skb_b, len_a);
-}
-
-static inline void skb_metadata_set(struct sk_buff *skb, u8 meta_len)
-{
-	skb_shinfo(skb)->meta_len = meta_len;
-}
-
-static inline void skb_metadata_clear(struct sk_buff *skb)
-{
-	skb_metadata_set(skb, 0);
 }
 
 struct sk_buff *skb_clone_sk(struct sk_buff *skb);
@@ -3752,16 +3730,6 @@ static inline u16 skb_get_rx_queue(const struct sk_buff *skb)
 static inline bool skb_rx_queue_recorded(const struct sk_buff *skb)
 {
 	return skb->queue_mapping != 0;
-}
-
-static inline void skb_set_dst_pending_confirm(struct sk_buff *skb, u32 val)
-{
-	skb->dst_pending_confirm = val;
-}
-
-static inline bool skb_get_dst_pending_confirm(const struct sk_buff *skb)
-{
-	return skb->dst_pending_confirm != 0;
 }
 
 static inline struct sec_path *skb_sec_path(struct sk_buff *skb)

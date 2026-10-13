@@ -936,7 +936,6 @@ struct rndis_params *rndis_register(void (*resp_avail)(void *v), void *v,
 	}
 #endif
 
-	spin_lock_init(&params->resp_lock);
 	params->confignr = i;
 	params->used = 1;
 	params->state = RNDIS_UNINITIALIZED;
@@ -1117,7 +1116,6 @@ EXPORT_SYMBOL_GPL(rndis_free_response);
 u8 *rndis_get_next_response(struct rndis_params *params, u32 *length)
 {
 	rndis_resp_t *r, *n;
-	unsigned long flags;
 
 	if (!length) return NULL;
 
@@ -1130,7 +1128,6 @@ u8 *rndis_get_next_response(struct rndis_params *params, u32 *length)
 			return r->buf;
 		}
 	}
-	spin_unlock_irqrestore(&params->resp_lock, flags);
 
 	spin_unlock(&params->resp_lock);
 	return NULL;

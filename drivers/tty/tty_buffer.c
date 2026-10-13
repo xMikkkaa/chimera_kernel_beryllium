@@ -71,7 +71,7 @@ void tty_buffer_unlock_exclusive(struct tty_port *port)
 	atomic_dec(&buf->priority);
 	mutex_unlock(&buf->lock);
 	if (restart)
-		kthread_queue_work(&port->worker, &buf->work);
+		queue_work(system_unbound_wq, &buf->work);
 }
 EXPORT_SYMBOL_GPL(tty_buffer_unlock_exclusive);
 
@@ -132,8 +132,6 @@ void tty_buffer_free_all(struct tty_port *port)
 	buf->tail = &buf->sentinel;
 
 	atomic_set(&buf->mem_used, 0);
-	if (!IS_ERR_OR_NULL(port->worker_thread))
-		kthread_stop(port->worker_thread);
 }
 
 /**
@@ -391,27 +389,6 @@ int __tty_insert_flip_char(struct tty_port *port, unsigned char ch, char flag)
 EXPORT_SYMBOL(__tty_insert_flip_char);
 
 /**
- *	tty_schedule_flip	-	push characters to ldisc
- *	@port: tty port to push from
- *
- *	Takes any pending buffers and transfers their ownership to the
- *	ldisc side of the queue. It then schedules those characters for
- *	processing by the line discipline.
- */
-
-void tty_schedule_flip(struct tty_port *port)
-{
-	struct tty_bufhead *buf = &port->buf;
-
-	/* paired w/ acquire in flush_to_ldisc(); ensures
-	 * flush_to_ldisc() sees buffer data.
-	 */
-	smp_store_release(&buf->tail->commit, buf->tail->used);
-	kthread_queue_work(&port->worker, &buf->work);
-}
-EXPORT_SYMBOL(tty_schedule_flip);
-
-/**
  *	tty_prepare_flip_string		-	make room for characters
  *	@port: tty port
  *	@chars: return pointer for character write area
@@ -492,7 +469,7 @@ receive_buf(struct tty_ldisc *ld, struct tty_buffer *head, int count)
  *		 'consumer'
  */
 
-static void flush_to_ldisc(struct kthread_work *work)
+static void flush_to_ldisc(struct work_struct *work)
 {
 	struct tty_port *port = container_of(work, struct tty_port, buf.work);
 	struct tty_bufhead *buf = &port->buf;
@@ -549,6 +526,15 @@ static void flush_to_ldisc(struct kthread_work *work)
 	tty_ldisc_deref(disc);
 }
 
+static inline void tty_flip_buffer_commit(struct tty_buffer *tail)
+{
+	/*
+	 * Paired w/ acquire in flush_to_ldisc(); ensures flush_to_ldisc() sees
+	 * buffer data.
+	 */
+	smp_store_release(&tail->commit, tail->used);
+}
+
 /**
  *	tty_flip_buffer_push	-	terminal
  *	@port: tty port to push
@@ -562,9 +548,43 @@ static void flush_to_ldisc(struct kthread_work *work)
 
 void tty_flip_buffer_push(struct tty_port *port)
 {
-	tty_schedule_flip(port);
+	struct tty_bufhead *buf = &port->buf;
+
+	tty_flip_buffer_commit(buf->tail);
+	queue_work(system_unbound_wq, &buf->work);
 }
 EXPORT_SYMBOL(tty_flip_buffer_push);
+
+/**
+ * tty_insert_flip_string_and_push_buffer - add characters to the tty buffer and
+ *	push
+ * @port: tty port
+ * @chars: characters
+ * @size: size
+ *
+ * The function combines tty_insert_flip_string() and tty_flip_buffer_push()
+ * with the exception of properly holding the @port->lock.
+ *
+ * To be used only internally (by pty currently).
+ *
+ * Returns: the number added.
+ */
+int tty_insert_flip_string_and_push_buffer(struct tty_port *port,
+		const unsigned char *chars, size_t size)
+{
+	struct tty_bufhead *buf = &port->buf;
+	unsigned long flags;
+
+	spin_lock_irqsave(&port->lock, flags);
+	size = tty_insert_flip_string(port, chars, size);
+	if (size)
+		tty_flip_buffer_commit(buf->tail);
+	spin_unlock_irqrestore(&port->lock, flags);
+
+	queue_work(system_unbound_wq, &buf->work);
+
+	return size;
+}
 
 /**
  *	tty_buffer_init		-	prepare a tty buffer structure
@@ -585,20 +605,8 @@ void tty_buffer_init(struct tty_port *port)
 	init_llist_head(&buf->free);
 	atomic_set(&buf->mem_used, 0);
 	atomic_set(&buf->priority, 0);
+	INIT_WORK(&buf->work, flush_to_ldisc);
 	buf->mem_limit = TTYB_DEFAULT_MEM_LIMIT;
-	kthread_init_work(&buf->work, flush_to_ldisc);
-	kthread_init_worker(&port->worker);
-	port->worker_thread = kthread_run(kthread_worker_fn, &port->worker,
-					  "tty_worker_thread");
-	if (IS_ERR(port->worker_thread)) {
-		/*
-		 * Not good, we can't unwind, this tty is going to be really
-		 * sad...
-		 */
-		pr_err("Unable to start tty_worker_thread\n");
-	}
-
-
 }
 
 /**
@@ -626,15 +634,15 @@ void tty_buffer_set_lock_subclass(struct tty_port *port)
 
 bool tty_buffer_restart_work(struct tty_port *port)
 {
-	return kthread_queue_work(&port->worker, &port->buf.work);
+	return queue_work(system_unbound_wq, &port->buf.work);
 }
 
 bool tty_buffer_cancel_work(struct tty_port *port)
 {
-	return kthread_cancel_work_sync(&port->buf.work);
+	return cancel_work_sync(&port->buf.work);
 }
 
 void tty_buffer_flush_work(struct tty_port *port)
 {
-	kthread_flush_work(&port->buf.work);
+	flush_work(&port->buf.work);
 }

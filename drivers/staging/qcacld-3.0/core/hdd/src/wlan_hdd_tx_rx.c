@@ -394,6 +394,7 @@ void hdd_event_eapol_log(struct sk_buff *skb, enum qdf_proto_dir dir)
 	WLAN_HOST_DIAG_EVENT_REPORT(&wlan_diag_event, EVENT_WLAN_EAPOL);
 }
 
+
 /**
  * wlan_hdd_classify_pkt() - classify packet
  * @skb - sk buff

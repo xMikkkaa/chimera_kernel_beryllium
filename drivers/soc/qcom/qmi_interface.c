@@ -40,8 +40,19 @@
 #define MAX_WQ_NAME_LEN 20
 #define QMI_REQ_RESP_LOG_PAGES 3
 #define QMI_IND_LOG_PAGES 2
-#define QMI_REQ_RESP_LOG(buf...) ((void)0)
-#define QMI_IND_LOG(buf...) ((void)0)
+#define QMI_REQ_RESP_LOG(buf...) \
+do { \
+	if (qmi_req_resp_log_ctx) { \
+		ipc_log_string(qmi_req_resp_log_ctx, buf); \
+	} \
+} while (0) \
+
+#define QMI_IND_LOG(buf...) \
+do { \
+	if (qmi_ind_log_ctx) { \
+		ipc_log_string(qmi_ind_log_ctx, buf); \
+	} \
+} while (0) \
 
 static LIST_HEAD(svc_event_nb_list);
 static DEFINE_MUTEX(svc_event_nb_list_lock);
@@ -1963,8 +1974,10 @@ int qmi_svc_event_notifier_register(uint32_t service_id,
 			svc_info_arr = kmalloc_array(num_servers,
 						sizeof(*svc_info_arr),
 						GFP_KERNEL);
-			if (!svc_info_arr)
-				return -ENOMEM;
+			if (!svc_info_arr) {
+				ret = -ENOMEM;
+				goto out;
+			}
 			num_servers = msm_ipc_router_lookup_server_name(
 								&svc_name,
 								svc_info_arr,
@@ -1982,6 +1995,8 @@ int qmi_svc_event_notifier_register(uint32_t service_id,
 			spin_unlock_irqrestore(&temp->nb_lock, flags);
 		}
 	}
+
+out:
 	mutex_unlock(&temp->svc_addr_list_lock);
 
 	return ret;
@@ -2104,7 +2119,6 @@ static void qmi_svc_event_notifier_init(void)
  */
 void qmi_log_init(void)
 {
-#ifdef CONFIG_IPC_LOGGING
 	qmi_req_resp_log_ctx =
 		ipc_log_context_create(QMI_REQ_RESP_LOG_PAGES,
 			"kqmi_req_resp", 0);
@@ -2116,7 +2130,6 @@ void qmi_log_init(void)
 	if (!qmi_ind_log_ctx)
 		pr_err("%s: Unable to create QMI IPC %s",
 				"logging for Indications", __func__);
-#endif
 }
 
 /**

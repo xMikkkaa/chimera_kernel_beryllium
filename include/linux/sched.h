@@ -41,7 +41,6 @@ struct sched_param {
 #include <linux/percpu.h>
 #include <linux/topology.h>
 #include <linux/seccomp.h>
-#include <linux/seccomp_types.h>
 #include <linux/rcupdate.h>
 #include <linux/rculist.h>
 #include <linux/rtmutex.h>
@@ -62,14 +61,7 @@ struct sched_param {
 
 #include <asm/processor.h>
 
-int  su_instances(void);
-bool su_running(void);
-bool su_visible(void);
-void su_exec(void);
-void su_exit(void);
-
 #define SCHED_ATTR_SIZE_VER0	48	/* sizeof first published struct */
-#define SCHED_ATTR_SIZE_VER1	56	/* add: util_{min,max} */
 
 /*
  * Extended scheduling parameters data structure.
@@ -82,33 +74,8 @@ void su_exit(void);
  * the tasks may be useful for a wide variety of application fields, e.g.,
  * multimedia, streaming, automation and control, and many others.
  *
- * This variant (sched_attr) allows to define additional attributes to
- * improve the scheduler knowledge about task requirements.
- *
- * Scheduling Class Attributes
- * ===========================
- *
- * A subset of sched_attr attributes specifies the
- * scheduling policy and relative POSIX attributes:
- *
- *  @size		size of the structure, for fwd/bwd compat.
- *
- *  @sched_policy	task's scheduling policy
- *  @sched_nice		task's nice value      (SCHED_NORMAL/BATCH)
- *  @sched_priority	task's static priority (SCHED_FIFO/RR)
- *
- * Certain more advanced scheduling features can be controlled by a
- * predefined set of flags via the attribute:
- *
- *  @sched_flags	for customizing the scheduler behaviour
- *
- * Sporadic Time-Constrained Task Attributes
- * =========================================
- *
- * A subset of sched_attr attributes allows to describe a so-called
- * sporadic time-constrained task.
- *
- * In such a model a task is specified by:
+ * This variant (sched_attr) is meant at describing a so-called
+ * sporadic time-constrained task. In such model a task is specified by:
  *  - the activation period or minimum instance inter-arrival time;
  *  - the maximum (or average, depending on the actual scheduling
  *    discipline) computation time of all instances, a.k.a. runtime;
@@ -120,8 +87,14 @@ void su_exit(void);
  * than the runtime and must be completed by time instant t equal to
  * the instance activation time + the deadline.
  *
- * This is reflected by the following fields of the sched_attr structure:
+ * This is reflected by the actual fields of the sched_attr structure:
  *
+ *  @size		size of the structure, for fwd/bwd compat.
+ *
+ *  @sched_policy	task's scheduling policy
+ *  @sched_flags	for customizing the scheduler behaviour
+ *  @sched_nice		task's nice value      (SCHED_NORMAL/BATCH)
+ *  @sched_priority	task's static priority (SCHED_FIFO/RR)
  *  @sched_deadline	representative of the task's deadline
  *  @sched_runtime	representative of the task's runtime
  *  @sched_period	representative of the task's period
@@ -133,31 +106,6 @@ void su_exit(void);
  * As of now, the SCHED_DEADLINE policy (sched_dl scheduling class) is the
  * only user of this new interface. More information about the algorithm
  * available in the scheduling class file or in Documentation/.
- *
- * Task Utilization Attributes
- * ===========================
- *
- * A subset of sched_attr attributes allows to specify the utilization
- * expected for a task. These attributes allow to inform the scheduler about
- * the utilization boundaries within which it should schedule the task. These
- * boundaries are valuable hints to support scheduler decisions on both task
- * placement and frequency selection.
- *
- *  @sched_util_min	represents the minimum utilization
- *  @sched_util_max	represents the maximum utilization
- *
- * Utilization is a value in the range [0..SCHED_CAPACITY_SCALE]. It
- * represents the percentage of CPU time used by a task when running at the
- * maximum frequency on the highest capacity CPU of the system. For example, a
- * 20% utilization task is a task running for 2ms every 10ms at maximum
- * frequency.
- *
- * A task with a min utilization value bigger than 0 is more likely scheduled
- * on a CPU with a capacity big enough to fit the specified value.
- * A task with a max utilization value smaller than 1024 is more likely
- * 
-scheduled on a CPU with no more capacity than the specified value.
-
  */
 struct sched_attr {
 	u32 size;
@@ -175,10 +123,6 @@ struct sched_attr {
 	u64 sched_runtime;
 	u64 sched_deadline;
 	u64 sched_period;
-
-	/* Utilization hints */
-	__u32 sched_util_min;
-	__u32 sched_util_max;
 };
 
 struct futex_pi_state;
@@ -1038,18 +982,6 @@ extern struct user_struct root_user;
 struct backing_dev_info;
 struct reclaim_state;
 
-/*
- * Utilization clamp constraints.
- * @UCLAMP_MIN:	Minimum utilization
- * @UCLAMP_MAX:	Maximum utilization
- * @UCLAMP_CNT:	Utilization clamp constraints count
- */
-enum uclamp_id {
-	UCLAMP_MIN = 0,
-	UCLAMP_MAX,
-	UCLAMP_CNT
-};
-
 #ifdef CONFIG_SCHED_INFO
 struct sched_info {
 	/* cumulative counters */
@@ -1611,20 +1543,13 @@ struct ravg {
 struct sched_entity {
 	struct load_weight	load;		/* for load-balancing */
 	struct rb_node		run_node;
-	u64			deadline;
-	u64			min_deadline;
 	struct list_head	group_node;
 	unsigned int		on_rq;
 
-	unsigned int		custom_slice : 1;
-					/* 31 bits hole */
-
 	u64			exec_start;
 	u64			sum_exec_runtime;
-	u64			prev_sum_exec_runtime;
 	u64			vruntime;
-	s64			vlag;
-	u64			slice;
+	u64			prev_sum_exec_runtime;
 
 	u64			nr_migrations;
 
@@ -1659,10 +1584,6 @@ struct sched_rt_entity {
 	unsigned int time_slice;
 	unsigned short on_rq;
 	unsigned short on_list;
-
-	/* Accesses for these must be guarded by rq->lock of the task's rq */
-	bool schedtune_enqueued;
-	struct hrtimer schedtune_timer;
 
 	struct sched_rt_entity *back;
 #ifdef CONFIG_RT_GROUP_SCHED
@@ -1720,41 +1641,6 @@ struct sched_dl_entity {
 	struct hrtimer dl_timer;
 };
 
-#ifdef CONFIG_UCLAMP_TASK
-/* Number of utilization clamp buckets (shorter alias) */
-#define UCLAMP_BUCKETS CONFIG_UCLAMP_BUCKETS_COUNT
-
-/*
- * Utilization clamp for a scheduling entity
- * @value:		clamp value "assigned" to a se
- * @bucket_id:		bucket index corresponding to the "assigned" value
- * @active:		the se is currently refcounted in a rq's bucket
- * @user_defined:	the requested clamp value comes from user-space
- *
- * The bucket_id is the index of the clamp bucket matching the clamp value
- * which is pre-computed and stored to avoid expensive integer divisions from
- * the fast path.
- *
- * The active bit is set whenever a task has got an "effective" value assigned,
- * which can be different from the clamp value "requested" from user-space.
- * This allows to know a task is refcounted in the rq's bucket corresponding
- * to the "effective" bucket_id.
- *
- * The user_defined bit is set whenever a task has got a task-specific clamp
- * value requested from userspace, i.e. the system defaults apply to this task
- * just as a restriction. This allows to relax default clamps when a less
- * restrictive task-specific value has been requested, thus allowing to
- * implement a "nice" semantic. For example, a task running with a 20%
- * default boost can still drop its own boosting to 0%.
- */
-struct uclamp_se {
-	unsigned int value		: bits_per(SCHED_CAPACITY_SCALE);
-	unsigned int bucket_id		: bits_per(UCLAMP_BUCKETS);
-	unsigned int active		: 1;
-	unsigned int user_defined	: 1;
-};
-#endif /* CONFIG_UCLAMP_TASK */
-
 union rcu_special {
 	struct {
 		u8 blocked;
@@ -1792,37 +1678,6 @@ struct tlbflush_unmap_batch {
 	bool writable;
 };
 
-#ifdef CONFIG_SCHED_BORE
-#define BORE_BC_TIMESTAMP_SHIFT 16
-
-struct bore_bc {
-	union {
-		struct {
-			u64		timestamp:	48;
-			u64		penalty:	16;
-		};
-		u64			value;
-	};
-};
-
-struct bore_ctx {
-	u64				burst_time;
-	u16				prev_penalty;
-	u16				curr_penalty;
-	union {
-		u16			penalty;
-		struct {
-			u8		_;
-			u8		score;
-		};
-	};
-	bool			stop_update;
-	bool			futex_waiting;
-	struct bore_bc	subtree;
-	struct bore_bc	group;
-};
-#endif /* CONFIG_SCHED_BORE */
-
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -1855,9 +1710,6 @@ struct task_struct {
 	unsigned int rt_priority;
 	const struct sched_class *sched_class;
 	struct sched_entity se;
-#ifdef CONFIG_SCHED_BORE
-	struct bore_ctx			bore;
-#endif /* CONFIG_SCHED_BORE */
 	struct sched_rt_entity rt;
 	u64 last_sleep_ts;
 	u64 last_cpu_selected_ts;
@@ -1881,19 +1733,6 @@ struct task_struct {
 	struct task_group *sched_task_group;
 #endif
 	struct sched_dl_entity dl;
-
-#ifdef CONFIG_UCLAMP_TASK
-	/*
-	 * Clamp values requested for a scheduling entity.
-	 * Must be updated with task_rq_lock() held.
-	 */
-	struct uclamp_se		uclamp_req[UCLAMP_CNT];
-	/*
-	 * Effective clamp values used for a scheduling entity.
-	 * Must be updated with task_rq_lock() held.
-	 */
-	struct uclamp_se		uclamp[UCLAMP_CNT];
-#endif
 
 #ifdef CONFIG_PREEMPT_NOTIFIERS
 	/* list of struct preempt_notifier: */
@@ -2686,14 +2525,12 @@ extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, 
 #define PF_KTHREAD	0x00200000	/* I am a kernel thread */
 #define PF_RANDOMIZE	0x00400000	/* randomize virtual address space */
 #define PF_SWAPWRITE	0x00800000	/* Allowed to write to swap */
-#define PF_PERF_CRITICAL 0x02000000	/* Thread is performance-critical */
+#define PF_MEMSTALL	0x01000000	/* Stalled due to lack of memory */
 #define PF_NO_SETAFFINITY 0x04000000	/* Userland is not allowed to meddle with cpus_allowed */
 #define PF_MCE_EARLY    0x08000000      /* Early kill for mce process policy */
 #define PF_MUTEX_TESTER	0x20000000	/* Thread belongs to the rt mutex tester */
 #define PF_FREEZER_SKIP	0x40000000	/* Freezer should not count it as freezable */
 #define PF_SUSPEND_TASK 0x80000000      /* this thread called freeze_processes and should not be frozen */
-
-#define PF_SU		0x10000000      /* task is su */
 
 /*
  * Only the _current_ task can read/write to tsk->flags, but other
@@ -3607,11 +3444,6 @@ static inline void unlock_task_sighand(struct task_struct *tsk,
 	spin_unlock_irqrestore(&tsk->sighand->siglock, *flags);
 }
 
-void sched_migrate_to_cpumask_start(struct cpumask *old_mask,
-				    const struct cpumask *dest);
-void sched_migrate_to_cpumask_end(const struct cpumask *old_mask,
-				  const struct cpumask *dest);
-
 /**
  * threadgroup_change_begin - mark the beginning of changes to a threadgroup
  * @tsk: task causing the changes
@@ -4020,7 +3852,6 @@ static inline void set_task_cpu(struct task_struct *p, unsigned int cpu)
 
 extern struct atomic_notifier_head load_alert_notifier_head;
 
-extern long msm_sched_setaffinity(pid_t pid, struct cpumask *new_mask);
 extern long sched_setaffinity(pid_t pid, const struct cpumask *new_mask);
 extern long sched_getaffinity(pid_t pid, struct cpumask *mask);
 
@@ -4119,8 +3950,6 @@ static inline unsigned long rlimit_max(unsigned int limit)
 #define SCHED_CPUFREQ_PL	(1U << 5)
 #define SCHED_CPUFREQ_EARLY_DET	(1U << 6)
 #define SCHED_CPUFREQ_FORCE_UPDATE (1U << 7)
-#define SCHED_CPUFREQ_CONTINUE	(1U << 8)
-#define SCHED_CPUFREQ_BOOST_UPDATE	(1U << 9)
 
 #define SCHED_CPUFREQ_RT_DL	(SCHED_CPUFREQ_RT | SCHED_CPUFREQ_DL)
 
@@ -4133,41 +3962,8 @@ void cpufreq_add_update_util_hook(int cpu, struct update_util_data *data,
                        void (*func)(struct update_util_data *data, u64 time,
 				    unsigned int flags));
 void cpufreq_remove_update_util_hook(int cpu);
-
-static inline unsigned long map_util_freq(unsigned long util,
-					unsigned long freq, unsigned long cap)
-{
-	return (freq + (freq >> 2)) * util / cap;
-}
 #endif /* CONFIG_CPU_FREQ */
 
 extern DEFINE_PER_CPU_READ_MOSTLY(int, sched_load_boost);
-
-#ifdef CONFIG_DYNAMIC_STUNE_BOOST
-int do_stune_boost(char *st_name, int boost, int *slot);
-int do_stune_sched_boost(char *st_name, int *slot);
-int reset_stune_boost(char *st_name, int slot);
-int set_stune_boost(char *st_name, int boost, int *boost_default);
-#else /* !CONFIG_DYNAMIC_STUNE_BOOST */
-static inline int do_stune_boost(char *st_name, int boost, int *slot)
-{
-	return 0;
-}
-
-static inline int do_stune_sched_boost(char *st_name, int *slot)
-{
-	return 0;
-}
-
-static inline int reset_stune_boost(char *st_name, int slot)
-{
-	return 0;
-}
-
-static inline int set_stune_boost(char *st_name, int boost, int *boost_default)
-{
-	return 0;
-}
-#endif /* CONFIG_DYNAMIC_STUNE_BOOST */
 
 #endif

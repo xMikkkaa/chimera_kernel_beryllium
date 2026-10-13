@@ -81,7 +81,8 @@ static void ip6_rt_copy_init(struct rt6_info *rt, struct rt6_info *ort);
 static struct dst_entry	*ip6_dst_check(struct dst_entry *dst, u32 cookie);
 static unsigned int	 ip6_default_advmss(const struct dst_entry *dst);
 static unsigned int	 ip6_mtu(const struct dst_entry *dst);
-static struct dst_entry *ip6_negative_advice(struct dst_entry *);
+static void		ip6_negative_advice(struct sock *sk,
+					    struct dst_entry *dst);
 static void		ip6_dst_destroy(struct dst_entry *);
 static void		ip6_dst_ifdown(struct dst_entry *,
 				       struct net_device *dev, int how);
@@ -214,21 +215,6 @@ static struct neighbour *ip6_neigh_lookup(const struct dst_entry *dst,
 	return neigh_create(&nd_tbl, daddr, dst->dev);
 }
 
-static void ip6_confirm_neigh(const struct dst_entry *dst, const void *daddr)
-{
-	struct net_device *dev = dst->dev;
-	struct rt6_info *rt = (struct rt6_info *)dst;
-
-	daddr = choose_neigh_daddr(rt, NULL, daddr);
-	if (!daddr)
-		return;
-	if (dev->flags & (IFF_NOARP | IFF_LOOPBACK))
-		return;
-	if (ipv6_addr_is_multicast((const struct in6_addr *)daddr))
-		return;
-	__ipv6_confirm_neigh(dev, daddr);
-}
-
 static struct dst_ops ip6_dst_ops_template = {
 	.family			=	AF_INET6,
 	.gc			=	ip6_dst_gc,
@@ -245,7 +231,6 @@ static struct dst_ops ip6_dst_ops_template = {
 	.redirect		=	rt6_do_redirect,
 	.local_out		=	__ip6_local_out,
 	.neigh_lookup		=	ip6_neigh_lookup,
-	.confirm_neigh		=	ip6_confirm_neigh,
 };
 
 static unsigned int ip6_blackhole_mtu(const struct dst_entry *dst)
@@ -1318,22 +1303,22 @@ static struct dst_entry *ip6_dst_check(struct dst_entry *dst, u32 cookie)
 		return rt6_check(rt, cookie);
 }
 
-static struct dst_entry *ip6_negative_advice(struct dst_entry *dst)
+static void ip6_negative_advice(struct sock *sk,
+				struct dst_entry *dst)
 {
 	struct rt6_info *rt = (struct rt6_info *) dst;
 
-	if (rt) {
-		if (rt->rt6i_flags & RTF_CACHE) {
-			if (rt6_check_expired(rt)) {
-				ip6_del_rt(rt);
-				dst = NULL;
-			}
-		} else {
-			dst_release(dst);
-			dst = NULL;
+	if (rt->rt6i_flags & RTF_CACHE) {
+		if (rt6_check_expired(rt)) {
+			/* counteract the dst_release() in sk_dst_reset() */
+			dst_hold(dst);
+			sk_dst_reset(sk);
+
+			ip6_del_rt(rt);
 		}
+		return;
 	}
-	return dst;
+	sk_dst_reset(sk);
 }
 
 static void ip6_link_failure(struct sk_buff *skb)
@@ -1378,7 +1363,6 @@ static bool rt6_cache_allowed_for_pmtu(const struct rt6_info *rt)
 static void __ip6_rt_update_pmtu(struct dst_entry *dst, const struct sock *sk,
 				 const struct ipv6hdr *iph, u32 mtu)
 {
-	const struct in6_addr *daddr, *saddr;
 	struct rt6_info *rt6 = (struct rt6_info *)dst;
 
 	/* Note: do *NOT* check dst_metric_locked(dst, RTAX_MTU)
@@ -1386,26 +1370,26 @@ static void __ip6_rt_update_pmtu(struct dst_entry *dst, const struct sock *sk,
 	 * [see also comment in rt6_mtu_change_route()]
 	 */
 
-	if (iph) {
-		daddr = &iph->daddr;
-		saddr = &iph->saddr;
-	} else if (sk) {
-		daddr = &sk->sk_v6_daddr;
-		saddr = &inet6_sk(sk)->saddr;
-	} else {
-		daddr = NULL;
-		saddr = NULL;
-	}
-	dst_confirm_neigh(dst, daddr);
+	dst_confirm(dst);
 	mtu = max_t(u32, mtu, IPV6_MIN_MTU);
 	if (mtu >= dst_mtu(dst))
 		return;
 
 	if (!rt6_cache_allowed_for_pmtu(rt6)) {
 		rt6_do_update_pmtu(rt6, mtu);
-	} else if (daddr) {
+	} else {
+		const struct in6_addr *daddr, *saddr;
 		struct rt6_info *nrt6;
 
+		if (iph) {
+			daddr = &iph->daddr;
+			saddr = &iph->saddr;
+		} else if (sk) {
+			daddr = &sk->sk_v6_daddr;
+			saddr = &inet6_sk(sk)->saddr;
+		} else {
+			return;
+		}
 		nrt6 = ip6_rt_cache_alloc(rt6, daddr, saddr);
 		if (nrt6) {
 			rt6_do_update_pmtu(nrt6, mtu);
@@ -2282,7 +2266,7 @@ static void rt6_do_redirect(struct dst_entry *dst, struct sock *sk, struct sk_bu
 	 * Look, redirects are sent only in response to data packets,
 	 * so that this nexthop apparently is reachable. --ANK
 	 */
-	dst_confirm_neigh(&rt->dst, &ipv6_hdr(skb)->saddr);
+	dst_confirm(&rt->dst);
 
 	neigh = __neigh_lookup(&nd_tbl, &msg->target, skb->dev, 1);
 	if (!neigh)

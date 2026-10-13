@@ -64,26 +64,17 @@
  * generates .data.identifier sections, which need to be pulled in with
  * .data. We don't want to pull in .data..other sections, which Linux
  * has defined. Same for text and bss.
- *
- * RODATA_MAIN is not used because existing code already defines .rodata.x
- * sections to be brought in with rodata.
  */
 #ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 #define TEXT_MAIN .text .text.[0-9a-zA-Z_]*
 #define TEXT_CFI_MAIN .text.cfi .text.[0-9a-zA-Z_]*.cfi
-#define DATA_MAIN .data .data.[0-9a-zA-Z_]* .data..compoundliteral* .data..L_MergedGlobals*
-#define SDATA_MAIN .sdata .sdata.[0-9a-zA-Z_]*
-#define RODATA_MAIN .rodata .rodata.[0-9a-zA-Z_]*
-#define BSS_MAIN .bss .bss.[0-9a-zA-Z_]* .bss..compoundliteral* .bss..L_MergedGlobals*
-#define SBSS_MAIN .sbss .sbss.[0-9a-zA-Z_]*
+#define DATA_MAIN .data .data.[0-9a-zA-Z_]*
+#define BSS_MAIN .bss .bss.[0-9a-zA-Z_]*
 #else
 #define TEXT_MAIN .text
 #define TEXT_CFI_MAIN .text.cfi
 #define DATA_MAIN .data
-#define SDATA_MAIN .sdata
-#define RODATA_MAIN .rodata
 #define BSS_MAIN .bss
-#define SBSS_MAIN .sbss
 #endif
 
 /*
@@ -124,7 +115,7 @@
 
 #ifdef CONFIG_TRACE_BRANCH_PROFILING
 #define LIKELY_PROFILE()	VMLINUX_SYMBOL(__start_annotated_branch_profile) = .; \
-				KEEP(*(_ftrace_annotated_branch))			      \
+				*(_ftrace_annotated_branch)			      \
 				VMLINUX_SYMBOL(__stop_annotated_branch_profile) = .;
 #else
 #define LIKELY_PROFILE()
@@ -132,7 +123,7 @@
 
 #ifdef CONFIG_PROFILE_ALL_BRANCHES
 #define BRANCH_PROFILE()	VMLINUX_SYMBOL(__start_branch_profile) = .;   \
-				KEEP(*(_ftrace_branch))			      \
+				*(_ftrace_branch)			      \
 				VMLINUX_SYMBOL(__stop_branch_profile) = .;
 #else
 #define BRANCH_PROFILE()
@@ -178,15 +169,6 @@
 			 VMLINUX_SYMBOL(__stop_syscalls_metadata) = .;
 #else
 #define TRACE_SYSCALLS()
-#endif
-
-#ifdef CONFIG_BPF_EVENTS
-#define BPF_RAW_TP() STRUCT_ALIGN();                                   \
- 			VMLINUX_SYMBOL(__start__bpf_raw_tp) = .;       \
- 			KEEP(*(__bpf_raw_tp_map))                      \
- 			VMLINUX_SYMBOL(__stop__bpf_raw_tp) = .;
-#else
-#define BPF_RAW_TP()
 #endif
 
 #ifdef CONFIG_SERIAL_EARLYCON
@@ -239,8 +221,8 @@
 	*(DATA_MAIN)							\
 	*(.ref.data)							\
 	*(.data..shared_aligned) /* percpu related */			\
-	MEM_KEEP(init.data*)						\
-	MEM_KEEP(exit.data*)						\
+	MEM_KEEP(init.data)						\
+	MEM_KEEP(exit.data)						\
 	*(.data.unlikely)						\
 	STRUCT_ALIGN();							\
 	*(__tracepoints)						\
@@ -256,7 +238,6 @@
 	LIKELY_PROFILE()		       				\
 	BRANCH_PROFILE()						\
 	TRACE_PRINTKS()							\
-	BPF_RAW_TP()                                                    \
 	TRACEPOINT_STR()
 
 /*
@@ -489,8 +470,8 @@
 		*(TEXT_CFI_MAIN) 					\
 		*(.ref.text)						\
 		*(.text.asan.* .text.tsan.*)				\
-	MEM_KEEP(init.text*)						\
-	MEM_KEEP(exit.text*)						\
+	MEM_KEEP(init.text)						\
+	MEM_KEEP(exit.text)						\
 
 
 /* sched.text is aling to function alignment to secure we have same
@@ -581,8 +562,8 @@
 /* init and exit section handling */
 #define INIT_DATA							\
 	KEEP(*(SORT(___kentry+*)))					\
-	*(.init.data .init.data.*)							\
-	MEM_DISCARD(init.data*)						\
+	*(.init.data)							\
+	MEM_DISCARD(init.data)						\
 	KERNEL_CTORS()							\
 	MCOUNT_REC()							\
 	*(.init.rodata .init.rodata.*)					\
@@ -605,14 +586,14 @@
 #define INIT_TEXT							\
 	*(.init.text .init.text.*)					\
 	*(.text.startup)						\
-	MEM_DISCARD(init.text*)
+	MEM_DISCARD(init.text)
 
 #define EXIT_DATA							\
-	*(.exit.data .exit.data.*)							\
+	*(.exit.data)							\
 	*(.fini_array)							\
 	*(.dtors)							\
-	MEM_DISCARD(exit.data*)						\
-	MEM_DISCARD(exit.rodata*)
+	MEM_DISCARD(exit.data)						\
+	MEM_DISCARD(exit.rodata)
 
 #define EXIT_TEXT							\
 	*(.exit.text)							\
@@ -629,7 +610,7 @@
 #define SBSS(sbss_align)						\
 	. = ALIGN(sbss_align);						\
 	.sbss : AT(ADDR(.sbss) - LOAD_OFFSET) {				\
-		*(SBSS_MAIN)						\
+		*(.sbss)						\
 		*(.scommon)						\
 	}
 
@@ -720,7 +701,7 @@
 #define NOTES								\
 	.notes : AT(ADDR(.notes) - LOAD_OFFSET) {			\
 		VMLINUX_SYMBOL(__start_notes) = .;			\
-		KEEP(*(.note.*))						\
+		*(.note.*)						\
 		VMLINUX_SYMBOL(__stop_notes) = .;			\
 	}
 
@@ -876,57 +857,6 @@
 
 
 /*
- * LLVM PGO data sections.
- * These must be outside .data to avoid nesting output sections.
- */
-#ifdef CONFIG_PGO_CLANG
-#define PGO_CLANG_DATA						\
-	__llvm_prf_data : AT(ADDR(__llvm_prf_data) - LOAD_OFFSET) { \
-		. = ALIGN(8);					\
-		__llvm_prf_data_start = .;			\
-		KEEP(*(__llvm_prf_data))			\
-		. = ALIGN(8);					\
-		__llvm_prf_data_end = .;			\
-	}							\
-	__llvm_prf_cnts : AT(ADDR(__llvm_prf_cnts) - LOAD_OFFSET) { \
-		. = ALIGN(8);					\
-		__llvm_prf_cnts_start = .;			\
-		KEEP(*(__llvm_prf_cnts))			\
-		. = ALIGN(8);					\
-		__llvm_prf_cnts_end = .;			\
-	}							\
-	__llvm_prf_bits : AT(ADDR(__llvm_prf_bits) - LOAD_OFFSET) { \
-		. = ALIGN(8);					\
-		__llvm_prf_bits_start = .;			\
-		KEEP(*(__llvm_prf_bits))			\
-		. = ALIGN(8);					\
-		__llvm_prf_bits_end = .;			\
-	}							\
-	__llvm_prf_names : AT(ADDR(__llvm_prf_names) - LOAD_OFFSET) { \
-		. = ALIGN(8);					\
-		__llvm_prf_names_start = .;			\
-		KEEP(*(__llvm_prf_names))			\
-		. = ALIGN(8);					\
-		__llvm_prf_names_end = .;			\
-	}							\
-	__llvm_prf_vals : AT(ADDR(__llvm_prf_vals) - LOAD_OFFSET) { \
-		__llvm_prf_vals_start = .;			\
-		KEEP(*(__llvm_prf_vals))			\
-		. = ALIGN(8);					\
-		__llvm_prf_vals_end = .;			\
-	}							\
-	__llvm_prf_vnds : AT(ADDR(__llvm_prf_vnds) - LOAD_OFFSET) { \
-		__llvm_prf_vnds_start = .;			\
-		KEEP(*(__llvm_prf_vnds))			\
-		. = ALIGN(8);					\
-		__llvm_prf_vnds_end = .;			\
-		__llvm_prf_end = .;				\
-	}
-#else
-#define PGO_CLANG_DATA
-#endif
-
-/*
  * Writeable data.
  * All sections are combined in a single .data section.
  * The sections following CONSTRUCTORS are arranged so their
@@ -948,8 +878,7 @@
 		READ_MOSTLY_DATA(cacheline)				\
 		DATA_DATA						\
 		CONSTRUCTORS						\
-	}								\
-	PGO_CLANG_DATA
+	}
 
 #define INIT_TEXT_SECTION(inittext_align)				\
 	. = ALIGN(inittext_align);					\

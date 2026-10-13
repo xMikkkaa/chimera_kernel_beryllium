@@ -1,1 +1,0 @@
-obj-$(CONFIG_INPUT_PRESS_NEXTINPUT) += ni_af3018_ts.o

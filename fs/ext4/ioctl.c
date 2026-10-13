@@ -768,7 +768,6 @@ resizefs_out:
 			return -EFAULT;
 
 		ret = ext4_trim_fs(sb, &range, flags);
-
 		if (ret < 0)
 			return ret;
 

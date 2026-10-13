@@ -1,5 +1,4 @@
 /* Copyright (c) 2016-2019, The Linux Foundation. All rights reserved.
- * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -60,7 +59,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x0>;
 			enable-method = "psci";
-			efficiency = <610>;
+			efficiency = <1024>;
 			cache-size = <0x8000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -97,7 +96,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x100>;
 			enable-method = "psci";
-			efficiency = <610>;
+			efficiency = <1024>;
 			cache-size = <0x8000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -128,7 +127,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x200>;
 			enable-method = "psci";
-			efficiency = <610>;
+			efficiency = <1024>;
 			cache-size = <0x8000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -159,7 +158,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x300>;
 			enable-method = "psci";
-			efficiency = <610>;
+			efficiency = <1024>;
 			cache-size = <0x8000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs0>;
@@ -190,7 +189,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x400>;
 			enable-method = "psci";
-			efficiency = <1024>;
+			efficiency = <1740>;
 			cache-size = <0x20000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -221,7 +220,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x500>;
 			enable-method = "psci";
-			efficiency = <1024>;
+			efficiency = <1740>;
 			cache-size = <0x20000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -252,7 +251,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x600>;
 			enable-method = "psci";
-			efficiency = <1024>;
+			efficiency = <1740>;
 			cache-size = <0x20000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -283,7 +282,7 @@
 			compatible = "arm,armv8";
 			reg = <0x0 0x700>;
 			enable-method = "psci";
-			efficiency = <1024>;
+			efficiency = <1740>;
 			cache-size = <0x20000>;
 			cpu-release-addr = <0x0 0x90000000>;
 			qcom,lmh-dcvs = <&lmh_dcvs1>;
@@ -481,7 +480,7 @@
 	};
 
 	chosen {
-		bootargs = "quiet rcupdate.rcu_normal_after_boot=1 noirqdebug cgroup.memory=nokmem,nosocket";
+		bootargs = "rcupdate.rcu_expedited=1 cgroup.memory=nokmem,nosocket";
 	};
 
 	soc: soc { };
@@ -496,7 +495,6 @@
 	firmware: firmware {
 		android {
 			compatible = "android,firmware";
-			boot_devices = "soc/1d84000.ufshc";
 			vbmeta {
 				compatible = "android,vbmeta";
 				parts = "vbmeta,boot,system,vendor,dtbo";
@@ -516,7 +514,7 @@
 		};
 	};
 
-	reserved_memory: reserved-memory {
+	reserved-memory {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		ranges;
@@ -528,7 +526,7 @@
 
 		xbl_region: xbl_region@85e00000 {
 			no-map;
-			reg = <0 0x85d00000 0 0x200000>;
+			reg = <0 0x85e00000 0 0x100000>;
 		};
 
 		removed_region: removed_region@85fc0000 {
@@ -569,49 +567,49 @@
 		pil_adsp_mem: adsp_region@0x8c500000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8c500000 0 0x1e00000>;
+			reg = <0 0x8c500000 0 0x1a00000>;
 		};
 
-		wlan_fw_region: wlan_fw_region@0x8e300000 {
+		wlan_fw_region: wlan_fw_region@0x8df00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8e300000 0 0x100000>;
+			reg = <0 0x8df00000 0 0x100000>;
 		};
 
-		pil_modem_mem: modem_region@0x8e400000 {
+		pil_modem_mem: modem_region@0x8e000000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x8e400000 0 0x7800000>;
+			reg = <0 0x8e000000 0 0x7800000>;
 		};
 
-		pil_video_mem: video_region@0x95c00000 {
+		pil_video_mem: video_region@0x95800000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x95c00000 0 0x500000>;
+			reg = <0 0x95800000 0 0x500000>;
 		};
 
-		pil_cdsp_mem: cdsp_region@0x96100000 {
+		pil_cdsp_mem: cdsp_region@0x95d00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x96100000 0 0x800000>;
+			reg = <0 0x95d00000 0 0x800000>;
 		};
 
-		pil_mba_mem: mba_region@0x96900000 {
+		pil_mba_mem: mba_region@0x96500000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x96900000 0 0x200000>;
+			reg = <0 0x96500000 0 0x200000>;
 		};
 
-		pil_slpi_mem: slpi_region@0x96b00000 {
+		pil_slpi_mem: slpi_region@0x96700000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x96b00000 0 0x1400000>;
+			reg = <0 0x96700000 0 0x1400000>;
 		};
 
-		pil_spss_mem: pil_spss_region@0x97f00000 {
+		pil_spss_mem: pil_spss_region@0x97b00000 {
 			compatible = "removed-dma-pool";
 			no-map;
-			reg = <0 0x97f00000 0 0x100000>;
+			reg = <0 0x97b00000 0 0x100000>;
 		};
 
 		adsp_mem: adsp_region {
@@ -663,7 +661,7 @@
 			alloc-ranges = <0 0x00000000 0 0xffffffff>;
 			reusable;
 			alignment = <0 0x400000>;
-			size = <0 0x8000000>;
+			size = <0 0x2000000>;
 			linux,cma-default;
 		};
 	};
@@ -690,7 +688,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU0>;
-		status = "disabled";
 	};
 
 	jtag_mm1: jtagmm@7140000 {
@@ -702,7 +699,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU1>;
-		status = "disabled";
 	};
 
 	jtag_mm2: jtagmm@7240000 {
@@ -714,7 +710,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU2>;
-		status = "disabled";
 	};
 
 	jtag_mm3: jtagmm@7340000 {
@@ -726,7 +721,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU3>;
-		status = "disabled";
 	};
 
 	jtag_mm4: jtagmm@7440000 {
@@ -738,7 +732,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU4>;
-		status = "disabled";
 	};
 
 	jtag_mm5: jtagmm@7540000 {
@@ -750,7 +743,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU5>;
-		status = "disabled";
 	};
 
 	jtag_mm6: jtagmm@7640000 {
@@ -762,7 +754,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU6>;
-		status = "disabled";
 	};
 
 	jtag_mm7: jtagmm@7740000 {
@@ -774,7 +765,6 @@
 		clock-names = "core_clk";
 
 		qcom,coresight-jtagmm-cpu = <&CPU7>;
-		status = "disabled";
 	};
 
 	intc: interrupt-controller@17a00000 {
@@ -1444,7 +1434,7 @@
 
 		/* PM QoS */
 		qcom,pm-qos-cpu-groups = <0x0f 0xf0>;
-		qcom,pm-qos-cpu-group-latency-us = <100 100>;
+		qcom,pm-qos-cpu-group-latency-us = <70 70>;
 		qcom,pm-qos-default-cpu = <0>;
 
 		pinctrl-names = "dev-reset-assert", "dev-reset-deassert";
@@ -1762,8 +1752,8 @@
 		reg = <0x17980000 0x1000>;
 		reg-names = "wdt-base";
 		interrupts = <0 0 0>, <0 1 0>;
-		qcom,bark-time = <20000>;
-		qcom,pet-time = <15000>;
+		qcom,bark-time = <11000>;
+		qcom,pet-time = <9360>;
 		qcom,ipi-ping;
 		qcom,wakeup-enable;
 	};
@@ -1915,11 +1905,6 @@
 		mem_dump_table@10 {
 			compatible = "qcom,msm-imem-mem_dump_table";
 			reg = <0x10 8>;
-		};
-
-		dload_type@18 {
-			compatible = "qcom,msm-imem-dload-type";
-			reg = <0x18 4>;
 		};
 
 		restart_reason@65c {
@@ -2505,7 +2490,7 @@
 		qcom,pipe-attr-ee;
 	};
 
-	qcom_qbt1000: qcom,qbt1000 {
+	qcom,qbt1000 {
 		compatible = "qcom,qbt1000";
 		clock-names = "core", "iface";
 		clock-frequency = <25000000>;
@@ -2696,6 +2681,7 @@
 		qcom,ipa-wdi2;
 		qcom,use-64-bit-dma-mask;
 		qcom,arm-smmu;
+		qcom,smmu-fast-map;
 		qcom,bandwidth-vote-for-ipa;
 		qcom,msm-bus,name = "ipa";
 		qcom,msm-bus,num-cases = <5>;
@@ -2818,7 +2804,6 @@
 
 		ipa_smmu_ap: ipa_smmu_ap {
 			compatible = "qcom,ipa-smmu-ap-cb";
-			qcom,smmu-s1-bypass;
 			iommus = <&apps_smmu 0x720 0x0>;
 			qcom,iova-mapping = <0x20000000 0x40000000>;
 			qcom,additional-mapping =
@@ -2828,7 +2813,6 @@
 
 		ipa_smmu_wlan: ipa_smmu_wlan {
 			compatible = "qcom,ipa-smmu-wlan-cb";
-			qcom,smmu-s1-bypass;
 			iommus = <&apps_smmu 0x721 0x0>;
 			qcom,additional-mapping =
 			/* ipa-uc ram */
@@ -2837,7 +2821,6 @@
 
 		ipa_smmu_uc: ipa_smmu_uc {
 			compatible = "qcom,ipa-smmu-uc-cb";
-			qcom,smmu-s1-bypass;
 			iommus = <&apps_smmu 0x722 0x0>;
 			qcom,iova-mapping = <0x40000000 0x20000000>;
 		};
@@ -3128,7 +3111,6 @@
 		vdd-3.3-ch0-supply = <&pm8998_l25>;
 		qcom,vdd-0.8-cx-mx-config = <800000 800000>;
 		qcom,vdd-3.3-ch0-config = <3104000 3312000>;
-		qcom,smmu-s1-bypass;
 	};
 
 	qmi-tmd-devices {
@@ -4210,6 +4192,7 @@
 #include "pm8998.dtsi"
 #include "pm8005.dtsi"
 #include "sdm845-regulator.dtsi"
+#include "sdm845-coresight.dtsi"
 #include "msm-arm-smmu-sdm845.dtsi"
 #include "sdm845-ion.dtsi"
 #include "sdm845-smp2p.dtsi"

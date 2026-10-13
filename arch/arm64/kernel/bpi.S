@@ -98,7 +98,6 @@ ENTRY(__smccc_workaround_1_smc_end)
 ENTRY(__smccc_workaround_1_hvc_start)
 	smccc_workaround_1	hvc
 ENTRY(__smccc_workaround_1_hvc_end)
-.#endif
 
 ENTRY(__smccc_workaround_3_smc_start)
 	sub     sp, sp, #(8 * 4)

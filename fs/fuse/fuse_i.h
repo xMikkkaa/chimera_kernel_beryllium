@@ -263,7 +263,7 @@ struct fuse_io_priv {
 
 #define FUSE_IO_PRIV_SYNC(f) \
 {					\
-	.refcnt = { ATOMIC_INIT(1) },	\
+	.refcnt = KREF_INIT(1),		\
 	.async = 0,			\
 	.file = f,			\
 }
@@ -314,6 +314,8 @@ struct fuse_req {
 
 	/** refcount */
 	atomic_t count;
+
+	bool user_pages;
 
 	/** Unique ID for the interrupt request */
 	u64 intr_unique;

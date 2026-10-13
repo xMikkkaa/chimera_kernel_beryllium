@@ -17,7 +17,11 @@
 # define __release(x)	__context__(x,-1)
 # define __cond_lock(x,c)	((c) ? ({ __acquire(x); 1; }) : 0)
 # define __percpu	__attribute__((noderef, address_space(3)))
+#ifdef CONFIG_SPARSE_RCU_POINTER
 # define __rcu		__attribute__((noderef, address_space(4)))
+#else /* CONFIG_SPARSE_RCU_POINTER */
+# define __rcu
+#endif /* CONFIG_SPARSE_RCU_POINTER */
 # define __private	__attribute__((noderef))
 extern void __chk_user_ptr(const volatile void __user *);
 extern void __chk_io_ptr(const volatile void __iomem *);
@@ -484,10 +488,6 @@ unsigned long read_word_at_a_time(const void *addr)
 #define __nocfi
 #endif
 
-#ifndef __noscs
-#define __noscs
-#endif
-
 /*
  * Assume alignment of return value.
  */
@@ -508,10 +508,6 @@ unsigned long read_word_at_a_time(const void *addr)
 
 #ifndef __optimize
 # define __optimize(level)
-#endif
-
-#ifndef __noreorder
-#define __noreorder
 #endif
 
 /* Compile time object size, -1 for unknown */

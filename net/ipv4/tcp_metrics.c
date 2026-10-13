@@ -375,9 +375,11 @@ void tcp_update_metrics(struct sock *sk)
 	u32 val;
 	int m;
 
-	sk_dst_confirm(sk);
 	if (sysctl_tcp_nometrics_save || !dst)
 		return;
+
+	if (dst->flags & DST_HOST)
+		dst_confirm(dst);
 
 	rcu_read_lock();
 	if (icsk->icsk_backoff || !tp->srtt_us) {
@@ -491,9 +493,10 @@ void tcp_init_metrics(struct sock *sk)
 	struct tcp_metrics_block *tm;
 	u32 val, crtt = 0; /* cached RTT scaled by 8 */
 
-	sk_dst_confirm(sk);
 	if (!dst)
 		goto reset;
+
+	dst_confirm(dst);
 
 	rcu_read_lock();
 	tm = tcp_get_metrics(sk, dst, true);
@@ -517,8 +520,11 @@ void tcp_init_metrics(struct sock *sk)
 		tp->snd_ssthresh = TCP_INFINITE_SSTHRESH;
 	}
 	val = tcp_metric_get(tm, TCP_METRIC_REORDERING);
-	if (val && tp->reordering != val)
+	if (val && tp->reordering != val) {
+		tcp_disable_fack(tp);
+		tcp_disable_early_retrans(tp);
 		tp->reordering = val;
+	}
 
 	crtt = tcp_metric_get(tm, TCP_METRIC_RTT);
 	rcu_read_unlock();
@@ -568,7 +574,7 @@ reset:
 		tp->snd_cwnd = 1;
 	else
 		tp->snd_cwnd = tcp_init_cwnd(tp, dst);
-	tp->snd_cwnd_stamp = tcp_jiffies32;
+	tp->snd_cwnd_stamp = tcp_time_stamp;
 }
 
 bool tcp_peer_is_proven(struct request_sock *req, struct dst_entry *dst,
@@ -1136,7 +1142,7 @@ static int __net_init tcp_net_metrics_init(struct net *net)
 
 	slots = tcpmhash_entries;
 	if (!slots) {
-		if (totalram_pages() >= 128 * 1024)
+		if (totalram_pages >= 128 * 1024)
 			slots = 16 * 1024;
 		else
 			slots = 8 * 1024;

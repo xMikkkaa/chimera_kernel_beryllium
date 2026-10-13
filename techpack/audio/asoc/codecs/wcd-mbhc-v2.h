@@ -1,5 +1,4 @@
 /* Copyright (c) 2014-2018, The Linux Foundation. All rights reserved.
- * Copyright (C) 2018 XiaoMi, Inc.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -132,7 +131,7 @@ do {                                                    \
 
 #define WCD_MBHC_JACK_MASK (SND_JACK_HEADSET | SND_JACK_OC_HPHL | \
 			   SND_JACK_OC_HPHR | SND_JACK_LINEOUT | \
-			   SND_JACK_MECHANICAL | SND_JACK_MICROPHONE2 | \
+			   SND_JACK_MECHANICAL | \
 			   SND_JACK_UNSUPPORTED)
 
 #define WCD_MBHC_JACK_BUTTON_MASK (SND_JACK_BTN_0 | SND_JACK_BTN_1 | \
@@ -149,7 +148,7 @@ do {                                                    \
 #define FW_READ_ATTEMPTS 15
 #define FW_READ_TIMEOUT 4000000
 #define FAKE_REM_RETRY_ATTEMPTS 3
-#define MAX_IMPED 100000
+#define MAX_IMPED 60000
 
 #define WCD_MBHC_BTN_PRESS_COMPL_TIMEOUT_MS  50
 #define ANC_DETECT_RETRY_CNT 7
@@ -412,15 +411,9 @@ struct usbc_ana_audio_config {
 	int usbc_en1_gpio;
 	int usbc_en2_gpio;
 	int usbc_force_gpio;
-	int euro_us_hw_switch_gpio;
-	int uart_audio_switch_gpio;
-	int subpcb_id_gpio;
 	struct device_node *usbc_en1_gpio_p; /* used by pinctrl API */
 	struct device_node *usbc_en2_gpio_p; /* used by pinctrl API */
 	struct device_node *usbc_force_gpio_p; /* used by pinctrl API */
-	struct device_node *euro_us_hw_switch_gpio_p; /* used by pinctrl API */
-	struct device_node *uart_audio_switch_gpio_p; /* used by pinctrl API */
-	struct device_node *subpcb_id_gpio_p; /* used by pinctrl API */
 };
 
 struct wcd_mbhc_config {
@@ -439,8 +432,6 @@ struct wcd_mbhc_config {
 	bool enable_anc_mic_detect;
 	u32 enable_usbc_analog;
 	struct usbc_ana_audio_config usbc_analog_cfg;
-	void (*enable_dual_adc_gpio)(struct device_node *node, bool en);
-	struct device_node *dual_adc_gpio_node;
 };
 
 struct wcd_mbhc_intr {

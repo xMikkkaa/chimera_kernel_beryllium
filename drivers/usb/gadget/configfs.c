@@ -8,7 +8,6 @@
 #include "configfs.h"
 #include "u_f.h"
 #include "u_os_desc.h"
-#include <linux/power_supply.h>
 
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
 #include <linux/platform_device.h>
@@ -20,7 +19,7 @@
 #endif
 
 #ifdef CONFIG_USB_CONFIGFS_F_ACC
-extern int acc_ctrlrequest(struct usb_composite_dev *cdev,
+extern int acc_ctrlrequest_composite(struct usb_composite_dev *cdev,
 				const struct usb_ctrlrequest *ctrl);
 void acc_disconnect(void);
 #endif
@@ -155,7 +154,6 @@ static int usb_string_copy(const char *s, char **s_copy)
 	char *str;
 	char *copy = *s_copy;
 	ret = strlen(s);
-
 	if (ret > USB_MAX_STRING_LEN)
 		return -EOVERFLOW;
 
@@ -1432,26 +1430,6 @@ err_comp_cleanup:
 	return ret;
 }
 
-static int smblib_cancel_recheck(void)
-{
-	union power_supply_propval pval = {0};
-	struct power_supply     *usb_psy = NULL;
-
-	if (!usb_psy) {
-		usb_psy = power_supply_get_by_name("usb");
-		if (!usb_psy) {
-			pr_err("Could not get usb psy by cancel recheck\n");
-			return -ENODEV;
-		}
-	}
-
-	pval.intval = 0;
-	power_supply_set_property(usb_psy, POWER_SUPPLY_PROP_TYPE_RECHECK,
-			&pval);
-
-	return pval.intval;
-}
-
 #ifdef CONFIG_USB_CONFIGFS_UEVENT
 static void android_work(struct work_struct *data)
 {
@@ -1489,7 +1467,6 @@ static void android_work(struct work_struct *data)
 		kobject_uevent_env(&gi->dev->kobj,
 					KOBJ_CHANGE, configured);
 		pr_info("%s: sent uevent %s\n", __func__, configured[0]);
-		smblib_cancel_recheck();
 		uevent_sent = true;
 	}
 
@@ -1665,7 +1642,7 @@ static int android_setup(struct usb_gadget *gadget,
 
 #ifdef CONFIG_USB_CONFIGFS_F_ACC
 	if (value < 0)
-		value = acc_ctrlrequest(cdev, c);
+		value = acc_ctrlrequest_composite(cdev, c);
 #endif
 
 	if (value < 0)

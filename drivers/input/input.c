@@ -2,7 +2,6 @@
  * The input core
  *
  * Copyright (c) 1999-2002 Vojtech Pavlik
- * Copyright (C) 2019 XiaoMi, Inc.
  */
 
 /*
@@ -28,9 +27,6 @@
 #include <linux/device.h>
 #include <linux/mutex.h>
 #include <linux/rcupdate.h>
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-#include <linux/rtc.h>
-#endif
 #include "input-compat.h"
 
 MODULE_AUTHOR("Vojtech Pavlik <vojtech@suse.cz>");
@@ -51,71 +47,8 @@ static LIST_HEAD(input_handler_list);
  * input handlers.
  */
 static DEFINE_MUTEX(input_mutex);
+
 static const struct input_value input_value_sync = { EV_SYN, SYN_REPORT, 1 };
-
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-static int input_device_is_touch(struct input_dev *input_dev)
-{
-	unsigned long mask = BIT_MASK(BTN_TOUCH);
-	return ((input_dev->keybit[BIT_WORD(BTN_TOUCH)] & mask) == mask) ? true:false;
-}
-
-static inline void touch_press_release_events_collect(struct input_dev *dev,
-		 unsigned int type, unsigned int code, int value)
-{
-	struct touch_event *touch_event_buf;
-	struct touch_event_info *touch_events;
-
-	if (!dev->touch_events)
-		return;
-
-	touch_events = dev->touch_events;
-
-	pr_debug("type %d, code %d, value %d\n", type, code, value);
-
-	switch(code) {
-		case ABS_MT_SLOT:
-			if (value > TOUCH_MAX_FINGER)
-				value = 0;
-			touch_events->touch_slot = value;
-			break;
-
-		case ABS_MT_TRACKING_ID:
-			touch_event_buf = &touch_events->touch_event_buf[touch_events->touch_event_num];
-			touch_event_buf->finger_num = touch_events->touch_slot;
-
-			if (value != -1 && !(touch_events->finger_bitmap & BIT(touch_events->touch_slot))) {
-				touch_events->finger_bitmap |= BIT(touch_events->touch_slot);
-				touch_event_buf->touch_state = TOUCH_IS_PRESSED;
-				getnstimeofday(&touch_event_buf->touch_time_stamp);
-				touch_events->touch_event_num++;
-				touch_events->touch_is_pressed = true;
-			} else if (value == -1 && (touch_events->finger_bitmap & BIT(touch_events->touch_slot))) {
-				touch_events->finger_bitmap &= ~BIT(touch_events->touch_slot);
-				touch_event_buf->touch_state = TOUCH_IS_RELEASED;
-				getnstimeofday(&touch_event_buf->touch_time_stamp);
-				touch_events->touch_event_num++;
-			}
-
-			if (touch_events->touch_event_num >= TOUCH_EVENT_MAX)
-				touch_events->touch_event_num = 0;
-
-			break;
-
-		case BTN_TOUCH:
-			if (value == 0) {
-				if (touch_events->touch_is_pressed) {
-					touch_events->touch_is_pressed = false;
-				}
-				touch_events->finger_bitmap = 0;
-			}
-			break;
-
-	}
-
-	return;
-}
-#endif
 
 static const unsigned int input_max_code[EV_CNT] = {
 	[EV_KEY] = KEY_MAX,
@@ -444,26 +377,11 @@ static int input_get_disposition(struct input_dev *dev,
 	return disposition;
 }
 
-#ifdef CONFIG_KSU_SUSFS
-extern struct static_key_true ksu_is_input_hook_enabled;
-extern __attribute__((cold)) int ksu_handle_input_handle_event(
-			unsigned int *type, unsigned int *code, int *value);
-
-static noinline void susfs_ksu_handle_input_handle_event_helper(unsigned int *type, unsigned int *code, int *value)
-{
-	if (static_branch_unlikely(&ksu_is_input_hook_enabled))
-		ksu_handle_input_handle_event(type, code, value);
-}
-#endif
-
-static noinline void input_handle_event(struct input_dev *dev,
+static void input_handle_event(struct input_dev *dev,
 			       unsigned int type, unsigned int code, int value)
 {
 	int disposition = input_get_disposition(dev, type, code, &value);
 
-#ifdef CONFIG_KSU_SUSFS
-	susfs_ksu_handle_input_handle_event_helper(&type, &code, &value);
-#endif
 	if (disposition != INPUT_IGNORE_EVENT && type != EV_SYN)
 		add_input_randomness(type, code, value);
 
@@ -528,9 +446,6 @@ void input_event(struct input_dev *dev,
 		spin_lock_irqsave(&dev->event_lock, flags);
 		input_handle_event(dev, type, code, value);
 		spin_unlock_irqrestore(&dev->event_lock, flags);
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-		touch_press_release_events_collect(dev, type, code, value);
-#endif
 	}
 }
 EXPORT_SYMBOL(input_event);
@@ -946,16 +861,18 @@ static int input_default_setkeycode(struct input_dev *dev,
 		}
 	}
 
-	__clear_bit(*old_keycode, dev->keybit);
-	__set_bit(ke->keycode, dev->keybit);
-
-	for (i = 0; i < dev->keycodemax; i++) {
-		if (input_fetch_keycode(dev, i) == *old_keycode) {
-			__set_bit(*old_keycode, dev->keybit);
-			break; /* Setting the bit twice is useless, so break */
+	if (*old_keycode <= KEY_MAX) {
+		__clear_bit(*old_keycode, dev->keybit);
+		for (i = 0; i < dev->keycodemax; i++) {
+			if (input_fetch_keycode(dev, i) == *old_keycode) {
+				__set_bit(*old_keycode, dev->keybit);
+				/* Setting the bit twice is useless, so break */
+				break;
+			}
 		}
 	}
 
+	__set_bit(ke->keycode, dev->keybit);
 	return 0;
 }
 
@@ -1011,9 +928,13 @@ int input_set_keycode(struct input_dev *dev,
 	 * Simulate keyup event if keycode is not present
 	 * in the keymap anymore
 	 */
-	if (test_bit(EV_KEY, dev->evbit) &&
-	    !is_event_supported(old_keycode, dev->keybit, KEY_MAX) &&
-	    __test_and_clear_bit(old_keycode, dev->key)) {
+	if (old_keycode > KEY_MAX) {
+		dev_warn(dev->dev.parent ?: &dev->dev,
+			 "%s: got too big old keycode %#x\n",
+			 __func__, old_keycode);
+	} else if (test_bit(EV_KEY, dev->evbit) &&
+		   !is_event_supported(old_keycode, dev->keybit, KEY_MAX) &&
+		   __test_and_clear_bit(old_keycode, dev->key)) {
 		struct input_value vals[] =  {
 			{ EV_KEY, old_keycode, 0 },
 			input_value_sync
@@ -1356,54 +1277,6 @@ static const struct file_operations input_handlers_fileops = {
 	.release	= seq_release,
 };
 
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-static int last_touch_events_show(struct seq_file *seq, void *v)
-{
-	struct input_dev *dev = container_of(v, struct input_dev, node);
-	int i = 0;
-	struct rtc_time tm;
-
-	if (!input_device_is_touch(dev) || !dev->touch_events)
-		return 0;
-
-	seq_printf(seq, "Name=\"%s\"\n", dev->name ? dev->name : "");
-
-	for (i = 0; i < TOUCH_EVENT_MAX; i++) {
-		if (dev->touch_events->touch_event_buf[i].touch_state == TOUCH_IS_INIT)
-			continue;
-		rtc_time_to_tm(dev->touch_events->touch_event_buf[i].touch_time_stamp.tv_sec, &tm);
-		seq_printf(seq, "%d-%02d-%02d %02d:%02d:%02d.%09lu UTC Finger (%2d) %s\n",
-			tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-			tm.tm_hour, tm.tm_min, tm.tm_sec,
-			dev->touch_events->touch_event_buf[i].touch_time_stamp.tv_nsec,
-			dev->touch_events->touch_event_buf[i].finger_num,
-			dev->touch_events->touch_event_buf[i].touch_state == TOUCH_IS_PRESSED ? "P" : "R");
-	}
-	return 0;
-}
-
-static const struct seq_operations input_last_touch_events_seq_ops = {
-	.start	= input_devices_seq_start,
-	.next	= input_devices_seq_next,
-	.stop	= input_seq_stop,
-	.show	= last_touch_events_show,
-};
-
-static int input_last_touch_events_open(struct inode *inode, struct file *file)
-{
-	return seq_open(file, &input_last_touch_events_seq_ops);
-}
-
-
-static const struct file_operations input_last_touch_events_fileops = {
-	.open		= input_last_touch_events_open,
-	.read		= seq_read,
-	.llseek		= seq_lseek,
-	.release	= seq_release,
-};
-
-#endif
-
 static int __init input_proc_init(void)
 {
 	struct proc_dir_entry *entry;
@@ -1421,17 +1294,9 @@ static int __init input_proc_init(void)
 			    &input_handlers_fileops);
 	if (!entry)
 		goto fail2;
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-	entry = proc_create("last_touch_events", 0, proc_bus_input_dir,
-				&input_last_touch_events_fileops);
-	if (!entry)
-		goto fail3;
-#endif
 
 	return 0;
-#ifdef CONFIG_LAST_TOUCH_EVENTS
- fail3: remove_proc_entry("handlers", proc_bus_input_dir);
-#endif
+
  fail2:	remove_proc_entry("devices", proc_bus_input_dir);
  fail1: remove_proc_entry("bus/input", NULL);
 	return -ENOMEM;
@@ -1439,9 +1304,6 @@ static int __init input_proc_init(void)
 
 static void input_proc_exit(void)
 {
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-	remove_proc_entry("last_touch_events", proc_bus_input_dir);
-#endif
 	remove_proc_entry("devices", proc_bus_input_dir);
 	remove_proc_entry("handlers", proc_bus_input_dir);
 	remove_proc_entry("bus/input", NULL);
@@ -2324,19 +2186,6 @@ int input_register_device(struct input_dev *dev)
 			__func__, dev_name(&dev->dev));
 		devres_add(dev->dev.parent, devres);
 	}
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-	if (input_device_is_touch(dev)) {
-		dev->touch_events = kzalloc(sizeof(struct touch_event_info), GFP_KERNEL);
-		if (dev->touch_events == NULL) {
-			pr_err("Touch event: alloc memory failed\n");
-		}
-
-		dev->touch_events->touch_is_pressed = false;
-		dev->touch_events->touch_event_num = 0;
-		dev->touch_events->touch_slot = 0;
-		dev->touch_events->finger_bitmap = 0;
-	}
-#endif
 	return 0;
 
 err_device_del:
@@ -2359,13 +2208,6 @@ EXPORT_SYMBOL(input_register_device);
  */
 void input_unregister_device(struct input_dev *dev)
 {
-#ifdef CONFIG_LAST_TOUCH_EVENTS
-	if (dev->touch_events) {
-		kfree(dev->touch_events);
-		dev->touch_events = NULL;
-	}
-#endif
-
 	if (dev->devres_managed) {
 		WARN_ON(devres_destroy(dev->dev.parent,
 					devm_input_device_unregister,

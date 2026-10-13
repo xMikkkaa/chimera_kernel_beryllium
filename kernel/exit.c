@@ -70,11 +70,7 @@ static void __unhash_process(struct task_struct *p, bool group_dead)
 		detach_pid(p, PIDTYPE_SID);
 
 		list_del_rcu(&p->tasks);
-#ifdef CONFIG_SCHED_BORE
-		list_del_rcu(&p->sibling);
-#else /* !CONFIG_SCHED_BORE */
 		list_del_init(&p->sibling);
-#endif /* CONFIG_SCHED_BORE */
 		__this_cpu_dec(process_counts);
 	}
 	list_del_rcu(&p->thread_group);
@@ -89,7 +85,7 @@ static void __exit_signal(struct task_struct *tsk)
 	struct signal_struct *sig = tsk->signal;
 	bool group_dead = thread_group_leader(tsk);
 	struct sighand_struct *sighand;
-	struct tty_struct *tty;
+	struct tty_struct *uninitialized_var(tty);
 	cputime_t utime, stime;
 
 	sighand = rcu_dereference_check(tsk->sighand,
@@ -813,10 +809,6 @@ void __noreturn do_exit(long code)
 
 	sched_exit(tsk);
 	schedtune_exit_task(tsk);
-
-	if (tsk->flags & PF_SU) {
-		su_exit();
-	}
 
 	/* sync mm's RSS info before statistics gathering */
 	if (tsk->mm)

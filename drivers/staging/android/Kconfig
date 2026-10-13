@@ -42,13 +42,6 @@ config ANDROID_VSOC
 	  a 'cuttlefish' Android image inside QEmu. The driver interacts with
 	  a QEmu ivshmem device. If built as a module, it will be called vsoc.
 
-config SYNC_DEBUG
-	bool "Debug software synchronization"
-	default n
-	depends on SYNC
-	---help---
-	  This makes the sync driver keep track of fence names.
-
 config ANDROID_LMK_NOTIFY_TRIGGER
 	bool "Android Low Memory Killer Notify Trigger"
 	depends on ANDROID_LOW_MEMORY_KILLER

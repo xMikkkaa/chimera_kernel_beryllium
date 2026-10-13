@@ -1138,7 +1138,7 @@ int do_migrate_pages(struct mm_struct *mm, const nodemask_t *from,
 static struct page *new_page(struct page *page, unsigned long start, int **x)
 {
 	struct vm_area_struct *vma;
-	unsigned long address;
+	unsigned long uninitialized_var(address);
 
 	vma = find_vma(current->mm, start);
 	while (vma) {
@@ -1502,7 +1502,7 @@ SYSCALL_DEFINE5(get_mempolicy, int __user *, policy,
 		unsigned long, addr, unsigned long, flags)
 {
 	int err;
-	int pval;
+	int uninitialized_var(pval);
 	nodemask_t nodes;
 
 	if (nmask != NULL && maxnode < nr_node_ids)

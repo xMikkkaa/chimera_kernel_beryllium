@@ -30,19 +30,9 @@
 #include <linux/audit.h>
 #include <linux/ipv6.h>
 #include <net/ipv6.h>
-#include <linux/spinlock.h>
-#include <linux/prefetch.h>
-#include "flask.h"
 #include "avc.h"
 #include "avc_ss.h"
 #include "classmap.h"
-
-#ifdef CONFIG_KSU_SUSFS
-#include <linux/susfs.h>
-extern u32 susfs_ksu_sid;
-extern u32 susfs_priv_app_sid;
-extern struct static_key_false susfs_is_avc_log_spoofing_enabled;
-#endif
 
 #define AVC_CACHE_SLOTS			512
 #define AVC_DEF_CACHE_THRESHOLD		512
@@ -168,28 +158,12 @@ static void avc_dump_query(struct audit_buffer *ab, u32 ssid, u32 tsid, u16 tcla
 	}
 
 	rc = security_sid_to_context(tsid, &scontext, &scontext_len);
-#ifdef CONFIG_KSU_SUSFS
-	if (static_branch_unlikely(&susfs_is_avc_log_spoofing_enabled)) {
-		if (unlikely(tsid == susfs_ksu_sid)) {
-			if (rc)
-				audit_log_format(ab, " tsid=%d", susfs_priv_app_sid);
-			else {
-				audit_log_format(ab, " tcontext=%s", "u:r:priv_app:s0:c512,c768");
-				kfree(scontext);
-			}
-			goto bypass_orig_flow;
-		}
-	}
-#endif
 	if (rc)
 		audit_log_format(ab, " tsid=%d", tsid);
 	else {
 		audit_log_format(ab, " tcontext=%s", scontext);
 		kfree(scontext);
 	}
-#ifdef CONFIG_KSU_SUSFS
-bypass_orig_flow:
-#endif
 
 	BUG_ON(!tclass || tclass >= ARRAY_SIZE(secclass_map));
 	audit_log_format(ab, " tclass=%s", secclass_map[tclass-1].name);
@@ -375,7 +349,7 @@ static struct avc_xperms_decision_node
 	struct extended_perms_decision *xpd;
 
 	xpd_node = kmem_cache_zalloc(avc_xperms_decision_cachep,
-				     GFP_NOWAIT | __GFP_NOWARN);
+			GFP_NOWAIT | __GFP_NOWARN);
 	if (!xpd_node)
 		return NULL;
 
@@ -422,7 +396,8 @@ static struct avc_xperms_node *avc_xperms_alloc(void)
 {
 	struct avc_xperms_node *xp_node;
 
-	xp_node = kmem_cache_zalloc(avc_xperms_cachep, GFP_NOWAIT | __GFP_NOWARN);
+	xp_node = kmem_cache_zalloc(avc_xperms_cachep,
+			GFP_NOWAIT | __GFP_NOWARN);
 	if (!xp_node)
 		return xp_node;
 	INIT_LIST_HEAD(&xp_node->xpd_head);
@@ -760,7 +735,6 @@ static void avc_audit_post_callback(struct audit_buffer *ab, void *a)
 		audit_log_format(ab, " permissive=%u",
 				 ad->selinux_audit_data->result ? 0 : 1);
 	}
-
 }
 
 /* This is the slow part of avc audit with big stack footprint */
@@ -893,7 +867,7 @@ static int avc_update_node(u32 event, u32 perms, u8 driver, u8 xperm, u32 ssid,
 	if (orig->ae.xp_node) {
 		rc = avc_xperms_populate(node, orig->ae.xp_node);
 		if (rc) {
-			kmem_cache_free(avc_node_cachep, node);
+			avc_node_kill(node);
 			goto out_unlock;
 		}
 	}

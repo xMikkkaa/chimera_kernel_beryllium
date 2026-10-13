@@ -11,7 +11,7 @@ asmlinkage long sys_ni_syscall(void);
 /*
  * Non-implemented system calls get redirected here.
  */
-asmlinkage __visible long sys_ni_syscall(void)
+asmlinkage long sys_ni_syscall(void)
 {
 	return -ENOSYS;
 }
@@ -64,7 +64,6 @@ cond_syscall(sys_set_robust_list);
 cond_syscall(compat_sys_set_robust_list);
 cond_syscall(sys_get_robust_list);
 cond_syscall(compat_sys_get_robust_list);
-cond_syscall(sys_futex_waitv);
 cond_syscall(sys_epoll_create);
 cond_syscall(sys_epoll_create1);
 cond_syscall(sys_epoll_ctl);
@@ -160,6 +159,7 @@ cond_syscall(compat_sys_process_vm_writev);
 cond_syscall(sys_uselib);
 cond_syscall(sys_fadvise64);
 cond_syscall(sys_fadvise64_64);
+cond_syscall(sys_madvise);
 cond_syscall(sys_setuid);
 cond_syscall(sys_setregid);
 cond_syscall(sys_setgid);

@@ -2012,7 +2012,8 @@ static int spcom_handle_write(struct spcom_channel *ch,
 
 	if (!ch && cmd_id != SPCOM_CMD_CREATE_CHANNEL) {
 		pr_err("channel context is null\n");
-		return -EINVAL;
+		ret = -EINVAL;
+		goto exit_err;
 	}
 
 	switch (cmd_id) {
@@ -2036,6 +2037,7 @@ static int spcom_handle_write(struct spcom_channel *ch,
 		ret = -EINVAL;
 	}
 
+exit_err:
 	mutex_unlock(&spcom_dev->cmd_lock);
 
 	return ret;
@@ -2634,7 +2636,7 @@ exit_destroy_device:
 	return -EFAULT;
 }
 
-static int spcom_register_chardev(void)
+static int __init spcom_register_chardev(void)
 {
 	int ret;
 	unsigned int baseminor = 0;

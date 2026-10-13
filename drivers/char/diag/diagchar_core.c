@@ -731,6 +731,11 @@ static void diag_cmd_invalidate_polling(int change_flag)
 	driver->polling_reg_flag = 0;
 	list_for_each_safe(start, temp, &driver->cmd_reg_list) {
 		item = list_entry(start, struct diag_cmd_reg_t, link);
+		if (&item->entry == NULL) {
+			pr_err("diag: In %s, unable to search command\n",
+			       __func__);
+			return;
+		}
 		polling = diag_cmd_chk_polling(&item->entry);
 		if (polling == DIAG_CMD_POLLING) {
 			driver->polling_reg_flag = 1;
@@ -792,6 +797,11 @@ struct diag_cmd_reg_entry_t *diag_cmd_search(
 
 	list_for_each_safe(start, temp, &driver->cmd_reg_list) {
 		item = list_entry(start, struct diag_cmd_reg_t, link);
+		if (&item->entry == NULL) {
+			pr_err("diag: In %s, unable to search command\n",
+			       __func__);
+			return NULL;
+		}
 		temp_entry = &item->entry;
 		if (temp_entry->cmd_code == entry->cmd_code &&
 		    temp_entry->subsys_id == entry->subsys_id &&
@@ -865,6 +875,12 @@ void diag_cmd_remove_reg_by_pid(int pid)
 	mutex_lock(&driver->cmd_reg_mutex);
 	list_for_each_safe(start, temp, &driver->cmd_reg_list) {
 		item = list_entry(start, struct diag_cmd_reg_t, link);
+		if (&item->entry == NULL) {
+			pr_err("diag: In %s, unable to search command\n",
+			       __func__);
+			mutex_unlock(&driver->cmd_reg_mutex);
+			return;
+		}
 		if (item->pid == pid) {
 			list_del(&item->link);
 			kfree(item);
@@ -883,6 +899,12 @@ void diag_cmd_remove_reg_by_proc(int proc)
 	mutex_lock(&driver->cmd_reg_mutex);
 	list_for_each_safe(start, temp, &driver->cmd_reg_list) {
 		item = list_entry(start, struct diag_cmd_reg_t, link);
+		if (&item->entry == NULL) {
+			pr_err("diag: In %s, unable to search command\n",
+			       __func__);
+			mutex_unlock(&driver->cmd_reg_mutex);
+			return;
+		}
 		if (item->proc == proc) {
 			list_del(&item->link);
 			kfree(item);
@@ -1907,11 +1929,13 @@ static int diag_switch_logging(struct diag_logging_mode_param_t *param)
 		driver->pcie_switch_pid = current->tgid;
 	}
 	if (new_mode == DIAG_PCIE_MODE) {
-		driver->transport_set = DIAG_ROUTE_TO_PCIE;
+		driver->transport_set =
+			DIAG_ROUTE_TO_PCIE;
 		diagmem_setsize(POOL_TYPE_MUX_APPS, itemsize_pcie_apps,
 			poolsize_pcie_apps + 1 + (NUM_PERIPHERALS * 6));
 	} else if (new_mode == DIAG_USB_MODE) {
-		driver->transport_set = DIAG_ROUTE_TO_USB;
+		driver->transport_set =
+			DIAG_ROUTE_TO_USB;
 		diagmem_setsize(POOL_TYPE_MUX_APPS, itemsize_usb_apps,
 			poolsize_usb_apps + 1 + (NUM_PERIPHERALS * 6));
 	}
@@ -4156,7 +4180,7 @@ static void diag_init_transport(void)
 	 * The number of buffers encompasses Diag data generated on
 	 * the Apss processor + 1 for the responses generated
 	 * exclusively on the Apps processor + data from data channels
-	 *(4 channels periperipheral) + data from command channels (2)
+	 *(4 channels per peripheral) + data from command channels (2)
 	 */
 	diagmem_setsize(POOL_TYPE_MUX_APPS, itemsize_pcie_apps,
 		poolsize_pcie_apps + 1 + (NUM_PERIPHERALS * 6));
@@ -4172,7 +4196,7 @@ static void diag_init_transport(void)
 	 * The number of buffers encompasses Diag data generated on
 	 * the Apss processor + 1 for the responses generated
 	 * exclusively on the Apps processor + data from data channels
-	 *(4 channels periperipheral) + data from command channels (2)
+	 *(4 channels per peripheral) + data from command channels (2)
 	 */
 	diagmem_setsize(POOL_TYPE_MUX_APPS, itemsize_usb_apps,
 		poolsize_usb_apps + 1 + (NUM_PERIPHERALS * 6));

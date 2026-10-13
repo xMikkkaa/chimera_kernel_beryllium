@@ -970,7 +970,7 @@ QDF_STATUS hdd_softap_rx_packet_cbk(void *context, qdf_nbuf_t rx_buf)
 							  hdd_ctx->config->
 								  rx_wakelock_timeout);
 		}
-		
+
 		/* Remove SKB from internal tracking table before submitting
 		 * it to stack
 		 */

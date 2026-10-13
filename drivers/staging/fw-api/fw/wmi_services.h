@@ -449,6 +449,7 @@ typedef  enum  {
     WMI_SERVICE_CONFIGURE_ROAM_TRIGGER_PARAM_SUPPORT = 254, /* FW supports ROAM trigger configuration param TLV */
     WMI_SERVICE_CFR_TA_RA_AS_FP_SUPPORT = 255, /* indicates FW support to program CFR TA/RA filtered packets as Filter pass */
 
+
     /******* ADD NEW SERVICES UP TO 256 HERE *******/
 
     WMI_MAX_EXT_SERVICE = 256,

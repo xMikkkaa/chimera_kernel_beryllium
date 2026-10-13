@@ -34,8 +34,7 @@ extern unsigned int sysctl_sched_boost;
 extern unsigned int sysctl_sched_group_upmigrate_pct;
 extern unsigned int sysctl_sched_group_downmigrate_pct;
 extern unsigned int sysctl_sched_walt_rotate_big_tasks;
-extern unsigned int sysctl_sched_min_task_util_for_boost;
-extern unsigned int sysctl_sched_min_task_util_for_colocation;
+extern unsigned int sysctl_sched_min_task_util_for_boost_colocation;
 extern unsigned int sysctl_sched_little_cluster_coloc_fmin_khz;
 
 extern int
@@ -92,12 +91,6 @@ extern int sched_window_update_handler(struct ctl_table *table,
 extern unsigned int sysctl_sched_rt_period;
 extern int sysctl_sched_rt_runtime;
 
-#ifdef CONFIG_UCLAMP_TASK
-extern unsigned int sysctl_sched_uclamp_util_min;
-extern unsigned int sysctl_sched_uclamp_util_max;
-extern unsigned int sysctl_sched_uclamp_util_min_rt_default;
-#endif
-
 #ifdef CONFIG_CFS_BANDWIDTH
 extern unsigned int sysctl_sched_cfs_bandwidth_slice;
 #endif
@@ -133,12 +126,6 @@ extern int sched_rt_handler(struct ctl_table *table, int write,
 		void __user *buffer, size_t *lenp,
 		loff_t *ppos);
 
-#ifdef CONFIG_UCLAMP_TASK
-extern int sysctl_sched_uclamp_handler(struct ctl_table *table, int write,
-				       void __user *buffer, size_t *lenp,
-				       loff_t *ppos);
-#endif
-
 extern int sched_updown_migrate_handler(struct ctl_table *table,
 					int write, void __user *buffer,
 					size_t *lenp, loff_t *ppos);
@@ -156,13 +143,4 @@ extern int sched_little_cluster_coloc_fmin_khz_handler(struct ctl_table *table,
 					int write, void __user *buffer,
 					size_t *lenp, loff_t *ppos);
 #endif
-
-#define LIB_PATH_LENGTH 512
-extern char sched_lib_name[LIB_PATH_LENGTH];
-extern unsigned int sched_lib_mask_force;
-extern int sysctl_sched_lib_name_handler(struct ctl_table *table, int write,
-					 void __user *buffer, size_t *lenp,
-					 loff_t *ppos);
-extern bool is_sched_lib_based_app(pid_t pid);
-
-#endif /* _LINUX_SCHED_SYSCTL_H */
+#endif /* _SCHED_SYSCTL_H */

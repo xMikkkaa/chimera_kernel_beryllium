@@ -101,12 +101,12 @@ struct shmem_falloc {
 #ifdef CONFIG_TMPFS
 static unsigned long shmem_default_max_blocks(void)
 {
-	return totalram_pages() / 2;
+	return totalram_pages / 2;
 }
 
 static unsigned long shmem_default_max_inodes(void)
 {
-	return min(totalram_pages() - totalhigh_pages(), totalram_pages() / 2);
+	return min(totalram_pages - totalhigh_pages, totalram_pages / 2);
 }
 #endif
 
@@ -977,27 +977,11 @@ void shmem_truncate_range(struct inode *inode, loff_t lstart, loff_t lend)
 	inode->i_ctime = inode->i_mtime = current_time(inode);
 }
 EXPORT_SYMBOL_GPL(shmem_truncate_range);
-#ifdef CONFIG_TRANSPARENT_HUGE_PAGECACHE
-static inline bool is_huge_enabled(struct shmem_sb_info *sbinfo)
-{
-	if (shmem_huge == SHMEM_HUGE_FORCE)
-		return true;
-	if (shmem_huge == SHMEM_HUGE_DENY)
-		return false;
-	return sbinfo->huge != SHMEM_HUGE_NEVER;
-}
-#else
-static inline bool is_huge_enabled(struct shmem_sb_info *sbinfo)
-{
-	return false;
-}
-#endif
 
-
-static int shmem_getattr(struct vfsmount *mnt, struct dentry *dentry,
-			 struct kstat *stat)
+static int shmem_getattr(const struct path *path, struct kstat *stat,
+			 u32 request_mask, unsigned int query_flags)
 {
-	struct inode *inode = dentry->d_inode;
+	struct inode *inode = path->dentry->d_inode;
 	struct shmem_inode_info *info = SHMEM_I(inode);
 
 	if (info->alloced - info->swapped != inode->i_mapping->nrpages) {
@@ -1005,13 +989,7 @@ static int shmem_getattr(struct vfsmount *mnt, struct dentry *dentry,
 		shmem_recalc_inode(inode);
 		spin_unlock_irq(&info->lock);
 	}
-	inode_lock_shared(inode);
 	generic_fillattr(inode, stat);
-	inode_unlock_shared(inode);
-
-	if (is_huge_enabled(SHMEM_SB(inode->i_sb)))
-		stat->blksize = HPAGE_PMD_SIZE;
-
 	return 0;
 }
 
@@ -3382,7 +3360,7 @@ static int shmem_parse_options(char *options, struct shmem_sb_info *sbinfo,
 			size = memparse(value,&rest);
 			if (*rest == '%') {
 				size <<= PAGE_SHIFT;
-				size *= totalram_pages();
+				size *= totalram_pages;
 				do_div(size, 100);
 				rest++;
 			}

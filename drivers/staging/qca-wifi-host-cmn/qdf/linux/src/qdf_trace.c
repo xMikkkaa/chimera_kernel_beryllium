@@ -3151,7 +3151,6 @@ static inline void print_to_console(char *str_buffer)
 }
 #endif
 
-#if 0
 #ifdef MULTI_IF_NAME
 static const char *qdf_trace_wlan_modname(void)
 {
@@ -3235,7 +3234,6 @@ void qdf_trace_msg_cmn(unsigned int idx,
 	}
 }
 qdf_export_symbol(qdf_trace_msg_cmn);
-#endif
 
 QDF_STATUS qdf_print_setup(void)
 {

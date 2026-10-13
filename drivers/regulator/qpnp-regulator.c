@@ -2184,6 +2184,7 @@ static int qpnp_regulator_probe(struct platform_device *pdev)
 	vreg->regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!vreg->regmap) {
 		dev_err(&pdev->dev, "Couldn't get parent's regmap\n");
+		kfree(vreg);
 		return -EINVAL;
 	}
 
@@ -2410,7 +2411,7 @@ static void qpnp_regulator_set_point_init(void)
  * This initialization function should be called in systems in which driver
  * registration ordering must be controlled precisely.
  */
-int qpnp_regulator_init(void)
+int __init qpnp_regulator_init(void)
 {
 	static bool has_registered;
 
@@ -2422,7 +2423,6 @@ int qpnp_regulator_init(void)
 
 	return platform_driver_register(&qpnp_regulator_driver);
 }
-EXPORT_SYMBOL(qpnp_regulator_init);
 
 static void __exit qpnp_regulator_exit(void)
 {

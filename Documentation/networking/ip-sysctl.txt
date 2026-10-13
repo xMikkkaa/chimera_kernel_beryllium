@@ -251,12 +251,21 @@ tcp_dsack - BOOLEAN
 	Allows TCP to send "duplicate" SACKs.
 
 tcp_early_retrans - INTEGER
-	Tail loss probe (TLP) converts RTOs occurring due to tail
-	losses into fast recovery (draft-ietf-tcpm-rack). Note that
-	TLP requires RACK to function properly (see tcp_recovery below)
+	Enable Early Retransmit (ER), per RFC 5827. ER lowers the threshold
+	for triggering fast retransmit when the amount of outstanding data is
+	small and when no previously unsent data can be transmitted (such
+	that limited transmit could be used). Also controls the use of
+	Tail loss probe (TLP) that converts RTOs occurring due to tail
+	losses into fast recovery (draft-dukkipati-tcpm-tcp-loss-probe-01).
 	Possible values:
-		0 disables TLP
-		3 or 4 enables TLP
+		0 disables ER
+		1 enables ER
+		2 enables ER but delays fast recovery and fast retransmit
+		  by a fourth of RTT. This mitigates connection falsely
+		  recovers when network has a small degree of reordering
+		  (less than 3 packets).
+		3 enables delayed ER and TLP.
+		4 enables TLP only.
 	Default: 3
 
 tcp_ecn - INTEGER
@@ -283,7 +292,8 @@ tcp_ecn_fallback - BOOLEAN
 	Default: 1 (fallback enabled)
 
 tcp_fack - BOOLEAN
-	This is a legacy option, it has no effect anymore.
+	Enable FACK congestion avoidance and fast retransmission.
+	The value is not used, if tcp_sack is not enabled.
 
 tcp_fin_timeout - INTEGER
 	The length of time an orphaned (no longer referenced by any
@@ -723,6 +733,18 @@ tcp_thin_linear_timeouts - BOOLEAN
 	Documentation/networking/tcp-thin.txt
 	Default: 0
 
+tcp_thin_dupack - BOOLEAN
+	Enable dynamic triggering of retransmissions after one dupACK
+	for thin streams. If set, a check is performed upon reception
+	of a dupACK to determine if the stream is thin (less than 4
+	packets in flight). As long as the stream is found to be thin,
+	data is retransmitted on the first received dupACK. This
+	improves retransmission latency for non-aggressive thin
+	streams, often found to be time-dependent.
+	For more information on thin streams, see
+	Documentation/networking/tcp-thin.txt
+	Default: 0
+
 tcp_limit_output_bytes - INTEGER
 	Controls TCP Small Queue limit per tcp socket.
 	TCP bulk sender tends to increase packets in flight until it
@@ -740,83 +762,6 @@ tcp_challenge_ack_limit - INTEGER
 	Default: 100
 
 UDP variables:
-
-tcp_plb_enabled - BOOLEAN
-	If set and the underlying congestion control (e.g. DCTCP) supports
-	and enables PLB feature, TCP PLB (Protective Load Balancing) is
-	enabled. PLB is described in the following paper:
-	https://doi.org/10.1145/3544216.3544226. Based on PLB parameters,
-	upon sensing sustained congestion, TCP triggers a change in
-	flow label field for outgoing IPv6 packets. A change in flow label
-	field potentially changes the path of outgoing packets for switches
-	that use ECMP/WCMP for routing.
-
-	PLB changes socket txhash which results in a change in IPv6 Flow Label
-	field, and currently no-op for IPv4 headers. It is possible
-	to apply PLB for IPv4 with other network header fields (e.g. TCP
-	or IPv4 options) or using encapsulation where outer header is used
-	by switches to determine next hop. In either case, further host
-	and switch side changes will be needed.
-
-	When set, PLB assumes that congestion signal (e.g. ECN) is made
-	available and used by congestion control module to estimate a
-	congestion measure (e.g. ce_ratio). PLB needs a congestion measure to
-	make repathing decisions.
-
-	Default: FALSE
-
-tcp_plb_idle_rehash_rounds - INTEGER
-	Number of consecutive congested rounds (RTT) seen after which
-	a rehash can be performed, given there are no packets in flight.
-	This is referred to as M in PLB paper:
-	https://doi.org/10.1145/3544216.3544226.
-
-	Possible Values: 0 - 31
-
-	Default: 3
-
-tcp_plb_rehash_rounds - INTEGER
-	Number of consecutive congested rounds (RTT) seen after which
-	a forced rehash can be performed. Be careful when setting this
-	parameter, as a small value increases the risk of retransmissions.
-	This is referred to as N in PLB paper:
-	https://doi.org/10.1145/3544216.3544226.
-
-	Possible Values: 0 - 31
-
-	Default: 12
-
-tcp_plb_suspend_rto_sec - INTEGER
-	Time, in seconds, to suspend PLB in event of an RTO. In order to avoid
-	having PLB repath onto a connectivity "black hole", after an RTO a TCP
-	connection suspends PLB repathing for a random duration between 1x and
-	2x of this parameter. Randomness is added to avoid concurrent rehashing
-	of multiple TCP connections. This should be set corresponding to the
-	amount of time it takes to repair a failed link.
-
-	Possible Values: 0 - 255
-
-	Default: 60
-
-tcp_plb_cong_thresh - INTEGER
-	Fraction of packets marked with congestion over a round (RTT) to
-	tag that round as congested. This is referred to as K in the PLB paper:
-	https://doi.org/10.1145/3544216.3544226.
-
-	The 0-1 fraction range is mapped to 0-256 range to avoid floating
-	point operations. For example, 128 means that if at least 50% of
-	the packets in a round were marked as congested then the round
-	will be tagged as congested.
-
-	Setting threshold to 0 means that PLB repaths every RTT regardless
-	of congestion. This is not intended behavior for PLB and should be
-	used only for experimentation purpose.
-
-	Possible Values: 0 - 256
-
-	Default: 128
-
-UDP variables
 
 udp_mem - vector of 3 INTEGERs: min, pressure, max
 	Number of pages allowed for queueing by all UDP sockets.
@@ -1681,7 +1626,7 @@ use_tempaddr - INTEGER
 
 temp_valid_lft - INTEGER
 	valid lifetime (in seconds) for temporary addresses.
-	Default: 604800 (7 days)
+	Default: 172800 (2 days)
 
 temp_prefered_lft - INTEGER
 	Preferred lifetime (in seconds) for temporary addresses.

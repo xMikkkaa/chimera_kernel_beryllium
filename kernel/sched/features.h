@@ -1,20 +1,29 @@
 /*
- * EEVDF features
+ * Only give sleepers 50% of their service deficit. This allows
+ * them to run sooner, but does not allow tons of sleepers to
+ * rip the spread apart.
  */
-SCHED_FEAT(PLACE_LAG, false)
-SCHED_FEAT(PLACE_DEADLINE_INITIAL, true)
-SCHED_FEAT(RUN_TO_PARITY, false)
-SCHED_FEAT(PREEMPT_SHORT, true)
-SCHED_FEAT(PLACE_SLEEPER, false)
-SCHED_FEAT(GENTLE_SLEEPER, true)
-SCHED_FEAT(EVDF, false)
+SCHED_FEAT(GENTLE_FAIR_SLEEPERS, true)
+
+/*
+ * Place new tasks ahead so that they do not starve already running
+ * tasks
+ */
+SCHED_FEAT(START_DEBIT, true)
 
 /*
  * Prefer to schedule the task we woke last (assuming it failed
  * wakeup-preemption), since its likely going to consume data we
  * touched, increases cache locality.
  */
-SCHED_FEAT(NEXT_BUDDY, true)
+SCHED_FEAT(NEXT_BUDDY, false)
+
+/*
+ * Prefer to schedule the task that ran last (when we did
+ * wake-preempt) as that likely will touch the same data, increases
+ * cache locality.
+ */
+SCHED_FEAT(LAST_BUDDY, true)
 
 /*
  * skip buddy i.e task called yield() is always skipped and the
@@ -35,18 +44,18 @@ SCHED_FEAT(WAKEUP_PREEMPTION, true)
 
 SCHED_FEAT(HRTICK, false)
 SCHED_FEAT(DOUBLE_TICK, false)
-SCHED_FEAT(LB_BIAS, false)
+SCHED_FEAT(LB_BIAS, true)
 
 /*
  * Decrement CPU capacity based on time not spent running tasks
  */
-SCHED_FEAT(NONTASK_CAPACITY, false)
+SCHED_FEAT(NONTASK_CAPACITY, true)
 
 /*
  * Queue remote wakeups on the target CPU and process them
  * using the scheduler IPI. Reduces rq->lock contention/bounces.
  */
-SCHED_FEAT(TTWU_QUEUE, true)
+SCHED_FEAT(TTWU_QUEUE, false)
 
 /*
  * When doing wakeups, attempt to limit superfluous scans of the LLC domain.
@@ -100,5 +109,4 @@ SCHED_FEAT(FBT_STRICT_ORDER, false)
  * ON: schedtune.prefer_idle is replaced with need_idle
  * OFF: schedtune.prefer_idle is honored as is.
  */
-SCHED_FEAT(EAS_USE_NEED_IDLE, false)
-SCHED_FEAT(SCHEDTUNE_BOOST_HOLD_ALL, true)
+SCHED_FEAT(EAS_USE_NEED_IDLE, true)

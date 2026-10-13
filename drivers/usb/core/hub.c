@@ -5,7 +5,6 @@
  * (C) Copyright 1999 Johannes Erdfelt
  * (C) Copyright 1999 Gregory P. Smith
  * (C) Copyright 2001 Brad Hards (bhards@bigpond.net.au)
- * Copyright (C) 2018 XiaoMi, Inc.
  *
  */
 
@@ -36,8 +35,6 @@
 
 #define USB_VENDOR_GENESYS_LOGIC		0x05e3
 #define HUB_QUIRK_CHECK_PORT_AUTOSUSPEND	0x01
-
-extern int deny_new_usb;
 
 /* Protect struct usb_device->state and ->children members
  * Note: Both are also protected by ->dev.sem, except that ->state can
@@ -112,10 +109,6 @@ static int usb_reset_and_verify_device(struct usb_device *udev);
 static int hub_port_disable(struct usb_hub *hub, int port1, int set_state);
 static bool hub_port_warm_reset_required(struct usb_hub *hub, int port1,
 		u16 portstatus);
-
-unsigned int connected_usb_idVendor = 0;
-unsigned int connected_usb_idProduct = 0;
-unsigned int connected_usb_devnum = 0xff;
 
 static inline char *portspeed(struct usb_hub *hub, int portstatus)
 {
@@ -2152,13 +2145,6 @@ void usb_disconnect(struct usb_device **pdev)
 	dev_info(&udev->dev, "USB disconnect, device number %d\n",
 			udev->devnum);
 
-	if (connected_usb_devnum == udev->devnum) {
-		dev_info(&udev->dev, "Xiaomi headset removed, devnum %d\n", udev->devnum);
-		connected_usb_idVendor = 0;
-		connected_usb_idProduct = 0;
-		connected_usb_devnum = 0xff;
-	}
-
 	/*
 	 * Ensure that the pm runtime code knows that the USB device
 	 * is in the process of being disconnected.
@@ -2485,14 +2471,6 @@ int usb_new_device(struct usb_device *udev)
 	/* export the usbdev device-node for libusb */
 	udev->dev.devt = MKDEV(USB_DEVICE_MAJOR,
 			(((udev->bus->busnum-1) * 128) + (udev->devnum-1)));
-
-	if ((0x2717 == le16_to_cpu(udev->descriptor.idVendor))
-			 && (0x3801 == le16_to_cpu(udev->descriptor.idProduct))) {
-		connected_usb_idVendor = le16_to_cpu(udev->descriptor.idVendor);
-		connected_usb_idProduct = le16_to_cpu(udev->descriptor.idProduct);
-		connected_usb_devnum = udev->devnum;
-		dev_info(&udev->dev, "Xiaomi headset identified, devnum %d\n", udev->devnum);
-	}
 
 	/* Tell the world! */
 	announce_device(udev);
@@ -3540,7 +3518,7 @@ int usb_port_resume(struct usb_device *udev, pm_message_t msg)
 		}
 
 		/* TRSMRCY = 10 msec */
-		msleep(10);
+		usleep_range(10000, 10500);
 	}
 
 	if (udev->persist_enabled)
@@ -4421,7 +4399,6 @@ static int hub_set_address(struct usb_device *udev, int devnum)
 	return retval;
 }
 
-#ifndef CONFIG_MACH_XIAOMI
 /*
  * There are reports of USB 3.0 devices that say they support USB 2.0 Link PM
  * when they're plugged into a USB 2.0 port, but they don't work when LPM is
@@ -4448,7 +4425,6 @@ static void hub_set_initial_usb2_lpm_policy(struct usb_device *udev)
 		usb_enable_usb2_hardware_lpm(udev);
 	}
 }
-#endif
 
 static int hub_enable_device(struct usb_device *udev)
 {
@@ -4780,10 +4756,7 @@ hub_port_init(struct usb_hub *hub, struct usb_device *udev, int port1,
 	/* notify HCD that we have a device connected and addressed */
 	if (hcd->driver->update_device)
 		hcd->driver->update_device(hcd, udev);
-	/* disable USB 2.0 Link PM to fix long time usb storage recognition issue */
-#ifndef CONFIG_MACH_XIAOMI
 	hub_set_initial_usb2_lpm_policy(udev);
-#endif
 fail:
 	if (retval) {
 		hub_port_disable(hub, port1, 0);
@@ -4878,8 +4851,8 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 	struct usb_port *port_dev = hub->ports[port1 - 1];
 	struct usb_device *udev = port_dev->child;
 	static int unreliable_port = -1;
-	enum usb_device_speed dev_speed = USB_SPEED_UNKNOWN;
 	bool retry_locked;
+	enum usb_device_speed dev_speed = USB_SPEED_UNKNOWN;
 
 	/* Disconnect any existing devices under this port */
 	if (udev) {
@@ -4929,12 +4902,6 @@ static void hub_port_connect(struct usb_hub *hub, int port1, u16 portstatus,
 			goto done;
 		return;
 	}
-
-	if (deny_new_usb) {
-		dev_err(&port_dev->dev, "denied insert of USB device on port %d\n", port1);
-		goto done;
-	}
-
 	if (hub_is_superspeed(hub->hdev))
 		unit_load = 150;
 	else
@@ -4982,15 +4949,16 @@ retry_enum:
 		if (status < 0)
 			goto loop;
 
+		mutex_unlock(hcd->address0_mutex);
+		usb_unlock_port(port_dev);
+		retry_locked = false;
+
 		dev_speed = udev->speed;
 		if (udev->speed > USB_SPEED_UNKNOWN &&
 				udev->speed <= USB_SPEED_HIGH && hcd->usb_phy
 				&& hcd->usb_phy->disable_chirp)
 			hcd->usb_phy->disable_chirp(hcd->usb_phy,
 					false);
-		mutex_unlock(hcd->address0_mutex);
-		usb_unlock_port(port_dev);
-		retry_locked = false;
 
 		if (udev->quirks & USB_QUIRK_DELAY_INIT)
 			msleep(2000);
@@ -5768,6 +5736,11 @@ re_enumerate_no_bos:
  * the reset is over (using their post_reset method).
  *
  * Return: The same as for usb_reset_and_verify_device().
+ * However, if a reset is already in progress (for instance, if a
+ * driver doesn't have pre_reset() or post_reset() callbacks, and while
+ * being unbound or re-bound during the ongoing reset its disconnect()
+ * or probe() routine tries to perform a second, nested reset), the
+ * routine returns -EINPROGRESS.
  *
  * Note:
  * The caller must own the device lock.  For example, it's safe to use
@@ -5800,6 +5773,10 @@ int usb_reset_device(struct usb_device *udev)
 		dev_dbg(&udev->dev, "%s for root hub!\n", __func__);
 		return -EISDIR;
 	}
+
+	if (udev->reset_in_progress)
+		return -EINPROGRESS;
+	udev->reset_in_progress = 1;
 
 	port_dev = hub->ports[udev->portnum - 1];
 
@@ -5865,6 +5842,7 @@ int usb_reset_device(struct usb_device *udev)
 
 	usb_autosuspend_device(udev);
 	memalloc_noio_restore(noio_flag);
+	udev->reset_in_progress = 0;
 	return ret;
 }
 EXPORT_SYMBOL_GPL(usb_reset_device);

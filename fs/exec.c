@@ -57,9 +57,6 @@
 #include <linux/oom.h>
 #include <linux/compat.h>
 #include <linux/vmalloc.h>
-#ifdef CONFIG_KSU_SUSFS
-#include <linux/susfs_def.h>
-#endif
 
 #include <asm/uaccess.h>
 #include <asm/mmu_context.h>
@@ -74,16 +71,6 @@ int suid_dumpable = 0;
 
 static LIST_HEAD(formats);
 static DEFINE_RWLOCK(binfmt_lock);
-
-#define ZYGOTE32_BIN "/system/bin/app_process32"
-#define ZYGOTE64_BIN "/system/bin/app_process64"
-static struct task_struct *zygote32_task;
-static struct task_struct *zygote64_task;
-
-bool task_is_zygote(struct task_struct *task)
-{
-	return task == zygote32_task || task == zygote64_task;
-}
 
 void __register_binfmt(struct linux_binfmt * fmt, int insert)
 {
@@ -1686,29 +1673,6 @@ static int exec_binprm(struct linux_binprm *bprm)
 	return ret;
 }
 
-#ifdef CONFIG_KSU_SUSFS
-extern struct static_key_true ksu_su_compat_enabled;
-extern struct static_key_true susfs_is_sdcard_android_data_not_decrypted;
-extern bool __ksu_is_allow_uid_for_current(uid_t uid);
-extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr, void *argv,
-			void *envp, int *flags);
-extern int ksu_handle_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
-				void *envp, int *flags);
-extern int ksu_handle_post_execveat_sucompat(int *fd, struct filename **filename_ptr, void *argv,
-				void *envp, int *flags, int *retval);
-
-static noinline int susfs_ksu_handle_execveat_helper(int *fd, struct filename **filename_ptr, void *argv, void *envp, int *flags)
-{
-	if (static_branch_likely(&ksu_su_compat_enabled)) {
-		if (static_branch_unlikely(&susfs_is_sdcard_android_data_not_decrypted))
-			return ksu_handle_execveat(fd, filename_ptr, argv, envp, flags);
-		else
-			return ksu_handle_execveat_sucompat(fd, filename_ptr, argv, envp, flags);
-	}
-	return -EINVAL;
-}
-#endif
-
 /*
  * sys_execve() executes a new program.
  */
@@ -1722,22 +1686,9 @@ static int do_execveat_common(int fd, struct filename *filename,
 	struct file *file;
 	struct files_struct *displaced;
 	int retval;
-	bool is_su;
-#ifdef CONFIG_KSU_SUSFS
-	bool is_su_session = false;
-#endif // #ifdef CONFIG_KSU_SUSFS
 
 	if (IS_ERR(filename))
 		return PTR_ERR(filename);
-
-#ifdef CONFIG_KSU_SUSFS
-	if (likely(susfs_is_current_proc_no_su()))
-		goto orig_flow;
-
-	is_su_session = !susfs_ksu_handle_execveat_helper(&fd, &filename, &argv, &envp, &flags);
-
-orig_flow:
-#endif
 
 	/*
 	 * We move the actual failure in case of RLIMIT_NPROC excess from
@@ -1834,9 +1785,6 @@ orig_flow:
 	if (retval < 0)
 		goto out;
 
-	/* exec_binprm can release file and it may be freed */
-	is_su = d_is_su(file->f_path.dentry);
-
 	/*
 	 * When argv is empty, add an empty string ("") as argv[0] to
 	 * ensure confused userspace programs that start processing
@@ -1852,24 +1800,8 @@ orig_flow:
 	}
 
 	retval = exec_binprm(bprm);
-#ifdef CONFIG_KSU_SUSFS
-	if (unlikely(is_su_session && retval >= 0))
-		(void)ksu_handle_post_execveat_sucompat(&fd, &filename, &argv, &envp, &flags, &retval);
-#endif // #ifdef CONFIG_KSU_SUSFS
 	if (retval < 0)
 		goto out;
-
-	if (is_su && capable(CAP_SYS_ADMIN)) {
-		current->flags |= PF_SU;
-		su_exec();
-	}
-
-	if (capable(CAP_SYS_ADMIN)) {
-		if (unlikely(!strcmp(filename->name, ZYGOTE32_BIN)))
-			zygote32_task = current;
-		else if (unlikely(!strcmp(filename->name, ZYGOTE64_BIN)))
-			zygote64_task = current;
-	}
 
 	/* execve succeeded */
 	current->fs->in_exec = 0;

@@ -63,9 +63,6 @@
 #include <linux/nsproxy.h>
 #include <linux/file.h>
 #include <linux/psi.h>
-#include <linux/binfmts.h>
-#include <linux/cpu_input_boost.h>
-#include <linux/devfreq_boost.h>
 #include <net/sock.h>
 
 #define CREATE_TRACE_POINTS
@@ -622,8 +619,6 @@ struct cgrp_cset_link {
 	struct list_head	cgrp_link;
 };
 
-static struct kmem_cache *cgrp_cset_link_pool;
-
 /*
  * The default css_set - used by init and its children prior to any
  * hierarchies being mounted. It contains a pointer to the root state
@@ -818,7 +813,7 @@ static void put_css_set_locked(struct css_set *cset)
 		list_del(&link->cgrp_link);
 		if (cgroup_parent(link->cgrp))
 			cgroup_put(link->cgrp);
-		kmem_cache_free(cgrp_cset_link_pool, link);
+		kfree(link);
 	}
 
 	kfree_rcu(cset, rcu_head);
@@ -977,7 +972,7 @@ static void free_cgrp_cset_links(struct list_head *links_to_free)
 
 	list_for_each_entry_safe(link, tmp_link, links_to_free, cset_link) {
 		list_del(&link->cset_link);
-		kmem_cache_free(cgrp_cset_link_pool, link);
+		kfree(link);
 	}
 }
 
@@ -997,7 +992,7 @@ static int allocate_cgrp_cset_links(int count, struct list_head *tmp_links)
 	INIT_LIST_HEAD(tmp_links);
 
 	for (i = 0; i < count; i++) {
-		link = kmem_cache_zalloc(cgrp_cset_link_pool, GFP_KERNEL);
+		link = kzalloc(sizeof(*link), GFP_KERNEL);
 		if (!link) {
 			free_cgrp_cset_links(tmp_links);
 			return -ENOMEM;
@@ -1184,7 +1179,7 @@ static void cgroup_destroy_root(struct cgroup_root *root)
 	list_for_each_entry_safe(link, tmp_link, &cgrp->cset_links, cset_link) {
 		list_del(&link->cset_link);
 		list_del(&link->cgrp_link);
-		kmem_cache_free(cgrp_cset_link_pool, link);
+		kfree(link);
 	}
 
 	spin_unlock_irq(&css_set_lock);
@@ -2988,15 +2983,6 @@ static ssize_t __cgroup_procs_write(struct kernfs_open_file *of, char *buf,
 	if (!ret)
 		ret = cgroup_attach_task(cgrp, tsk, threadgroup);
 
-	/* This covers boosting for app launches and app transitions */
-	if (!ret && !threadgroup &&
-	    !strcmp(of->kn->parent->name, "top-app") &&
-	    task_is_zygote(tsk->parent)){
-		cpu_input_boost_kick_max(1000);
-		devfreq_boost_kick_max(DEVFREQ_MSM_CPUBW, 1000);
-		devfreq_boost_kick_max(DEVFREQ_MSM_LLCCBW, 1000);
-	}
-	
 	put_task_struct(tsk);
 	goto out_unlock_threadgroup;
 
@@ -3599,14 +3585,19 @@ static ssize_t cgroup_pressure_write(struct kernfs_open_file *of, char *buf,
 	cgroup_get(cgrp);
 	cgroup_kn_unlock(of->kn);
 
+	/* Allow only one trigger per file descriptor */
+	if (of->priv) {
+		cgroup_put(cgrp);
+		return -EBUSY;
+	}
+
 	new = psi_trigger_create(&cgrp->psi, buf, nbytes, res);
 	if (IS_ERR(new)) {
 		cgroup_put(cgrp);
 		return PTR_ERR(new);
 	}
 
-	psi_trigger_replace(&of->priv, new);
-
+	smp_store_release(&of->priv, new);
 	cgroup_put(cgrp);
 
 	return nbytes;
@@ -3641,7 +3632,7 @@ static unsigned int cgroup_pressure_poll(struct kernfs_open_file *of,
 
 static void cgroup_pressure_release(struct kernfs_open_file *of)
 {
-	psi_trigger_replace(&of->priv, NULL);
+	psi_trigger_destroy(of->priv);
 }
 #endif /* CONFIG_PSI */
 
@@ -5862,12 +5853,10 @@ int __init cgroup_init_early(void)
  * Register cgroup filesystem and /proc file, and initialize
  * any subsystems that didn't request early init.
  */
-int __init __visible cgroup_init(void)
+int __init cgroup_init(void)
 {
 	struct cgroup_subsys *ss;
 	int ssid;
-
-	cgrp_cset_link_pool = KMEM_CACHE(cgrp_cset_link, SLAB_HWCACHE_ALIGN | SLAB_PANIC);
 
 	BUILD_BUG_ON(CGROUP_SUBSYS_COUNT > 16);
 	BUG_ON(percpu_init_rwsem(&cgroup_threadgroup_rwsem));
@@ -5954,48 +5943,6 @@ int __init __visible cgroup_init(void)
 	WARN_ON(register_filesystem(&cgroup2_fs_type));
 	WARN_ON(!proc_create("cgroups", 0, NULL, &proc_cgroupstats_operations));
 
-	return 0;
-}
-
-static u64 power_of_ten(int power)
-{
-	u64 v = 1;
-	while (power--)
-		v *= 10;
-	return v;
-}
-
-/**
- * cgroup_parse_float - parse a floating number
- * @input: input string
- * @dec_shift: number of decimal digits to shift
- * @v: output
- *
- * Parse a decimal floating point number in @input and store the result in
- * @v with decimal point right shifted @dec_shift times.  For example, if
- * @input is "12.3456" and @dec_shift is 3, *@v will be set to 12345.
- * Returns 0 on success, -errno otherwise.
- *
- * There's nothing cgroup specific about this function except that it's
- * currently the only user.
- */
-int cgroup_parse_float(const char *input, unsigned dec_shift, s64 *v)
-{
-	s64 whole, frac = 0;
-	int fstart = 0, fend = 0, flen;
-
-	if (!sscanf(input, "%lld.%n%lld%n", &whole, &fstart, &frac, &fend))
-		return -EINVAL;
-	if (frac < 0)
-		return -EINVAL;
-
-	flen = fend > fstart ? fend - fstart : 0;
-	if (flen < dec_shift)
-		frac *= power_of_ten(dec_shift - flen);
-	else
-		frac = DIV_ROUND_CLOSEST_ULL(frac, power_of_ten(flen - dec_shift));
-
-	*v = whole * power_of_ten(dec_shift) + frac;
 	return 0;
 }
 
@@ -6803,16 +6750,6 @@ int cgroup_bpf_detach(struct cgroup *cgrp, struct bpf_prog *prog,
 
 	mutex_lock(&cgroup_mutex);
 	ret = __cgroup_bpf_detach(cgrp, prog, type, flags);
-	mutex_unlock(&cgroup_mutex);
-	return ret;
-}
-int cgroup_bpf_query(struct cgroup *cgrp, const union bpf_attr *attr,
-		     union bpf_attr __user *uattr)
-{
-	int ret;
-
-	mutex_lock(&cgroup_mutex);
-	ret = __cgroup_bpf_query(cgrp, attr, uattr);
 	mutex_unlock(&cgroup_mutex);
 	return ret;
 }

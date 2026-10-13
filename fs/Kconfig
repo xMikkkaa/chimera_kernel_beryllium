@@ -122,10 +122,10 @@ endmenu
 endif # BLOCK
 
 if BLOCK
-menu "DOS/FAT/NT Filesystems"
+menu "DOS/FAT/EXFAT/NT Filesystems"
 
 source "fs/fat/Kconfig"
-source "fs/sdfat/Kconfig"
+source "fs/exfat/Kconfig"
 source "fs/ntfs/Kconfig"
 
 endmenu
@@ -251,7 +251,6 @@ source "fs/pstore/Kconfig"
 source "fs/sysv/Kconfig"
 source "fs/ufs/Kconfig"
 source "fs/exofs/Kconfig"
-source "fs/erofs/Kconfig"
 
 endif # MISC_FILESYSTEMS
 
@@ -313,7 +312,3 @@ source "fs/nls/Kconfig"
 source "fs/dlm/Kconfig"
 
 endmenu
-
-config KSU_SUSFS_AUTO_MOUNT_SOURCE_SPOOF
-    bool "Enable spoofing of susfs auto mount source"
-    default y

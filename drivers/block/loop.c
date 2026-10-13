@@ -76,7 +76,6 @@
 #include <linux/miscdevice.h>
 #include <linux/falloc.h>
 #include <linux/uio.h>
-#include <linux/android_version.h>
 #include "loop.h"
 
 #include <asm/uaccess.h>
@@ -1028,8 +1027,6 @@ static int loop_configure(struct loop_device *lo, fmode_t mode,
 	mapping = file->f_mapping;
 	inode = mapping->host;
 
-	size = get_loop_size(lo, file);
-
 	if ((config->info.lo_flags & ~LOOP_CONFIGURE_SETTABLE_FLAGS) != 0) {
 		error = -EINVAL;
 		goto out_putf;
@@ -1076,6 +1073,8 @@ static int loop_configure(struct loop_device *lo, fmode_t mode,
 
 	loop_update_dio(lo);
 	loop_sysfs_init(lo);
+
+	size = get_loop_size(lo, file);
 	loop_set_size(lo, size);
 
 	if (config->block_size)
@@ -1268,7 +1267,8 @@ loop_get_status(struct loop_device *lo, struct loop_info64 *info)
 
 	if (lo->lo_state != Lo_bound)
 		return -ENXIO;
-	error = vfs_getattr(&file->f_path, &stat);
+	error = vfs_getattr(&file->f_path, &stat,
+			    STATX_INO, AT_STATX_SYNC_AS_STAT);
 	if (error)
 		return error;
 	memset(info, 0, sizeof(*info));
@@ -2168,7 +2168,7 @@ static int __init loop_init(void)
 		nr = max_loop;
 		range = max_loop << part_shift;
 	} else {
-		nr = (get_android_version() <= 9) ? 8 : 16;
+		nr = CONFIG_BLK_DEV_LOOP_MIN_COUNT;
 		range = 1UL << MINORBITS;
 	}
 
